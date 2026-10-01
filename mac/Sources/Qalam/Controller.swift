@@ -9,6 +9,7 @@ final class Controller {
     let settings = Settings()
     let target = DisplayTarget(index: 0)
     let board = InkBoard()
+    let gate = Gate(store: PairingStore())
     let macName = (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac"
     private(set) var mode = Mode.cursor
     private(set) var usbReady: [String] = []
@@ -23,15 +24,16 @@ final class Controller {
     private let stats: [Link: LinkStats] = [.wifi: LinkStats(), .usb: LinkStats()]
     private var penLink: Link?
     private var connected = false
-    private var pongCounter: UInt32 = 0
+    private var pairingWindow: PairingWindow?
     private let inkSmoother = Smoother()
     private var inkTouching = false
     private var lastPenActive: TimeInterval = 0
     private var timer: Timer?
 
     func start() throws {
-        let r = Receiver(queue: .main) { [weak self] frame, link, reply in self?.handle(frame, link, reply) }
-        try r.start(serviceName: macName)
+        let r = Receiver(queue: .main) { [weak self] bytes, link, send in self?.gate.handle(bytes, link: link, send: send) }
+        gate.onFrame = { [weak self] frame, counter, link, reply in self?.handle(frame, counter, link, reply) }
+        try r.start(serviceName: macName, macId: gate.store.macIdHex)
         receiver = r
         adb.verbose = false
         adb.onChange = { [weak self] serials in
@@ -39,6 +41,11 @@ final class Controller {
             self?.onChange?()
         }
         if Wire.testPort == nil { adb.start() } // a test instance leaves the phone's adb alone
+        // Automated tests only: a QALAM_PORT test instance (its own port and pairing file, no
+        // Bonjour) can open pairing at launch and accept the first code by itself.
+        if Wire.testPort != nil, ProcessInfo.processInfo.environment["QALAM_TEST_AUTOPAIR"] == "1" {
+            openPairing(autoAccept: true)
+        }
         let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(t, forMode: .common)
         timer = t
@@ -61,6 +68,34 @@ final class Controller {
         s.inkStrokes = UInt16(clamping: board.strokes.count)
         s.inkHistory = UInt16(clamping: board.historyDepth)
         return s
+    }
+
+    // MARK: Pairing
+
+    var pairedPhones: [PairingStore.Phone] { gate.store.phones }
+
+    /// Something unpaired (an old app, a forgotten phone) knocked in the last 10 seconds.
+    var unpairedKnocking: Bool { gate.lastRejected.map { Date().timeIntervalSince($0) < 10 } ?? false }
+
+    /// Opens the "Pair a phone" window; pairing requests are answered only while it's open.
+    func openPairing(autoAccept: Bool = false) {
+        if let pairingWindow {
+            pairingWindow.show()
+            return
+        }
+        let responder = PairingResponder(store: gate.store, macName: macName)
+        gate.pairing = responder
+        pairingWindow = PairingWindow(responder: responder, autoAccept: autoAccept) { [weak self] in
+            self?.gate.pairing = nil
+            self?.pairingWindow = nil
+            self?.onChange?()
+        }
+    }
+
+    func forget(_ id: UInt32) {
+        gate.store.remove(id)
+        gate.drop(pairing: id)
+        onChange?()
     }
 
     // MARK: Commands (phone strip, menu, hotkeys)
@@ -117,23 +152,22 @@ final class Controller {
 
     // MARK: Frames
 
-    private func handle(_ frame: Frame, _ link: Link, _ reply: Receiver.Reply) {
+    private func handle(_ frame: Frame, _ counter: UInt64, _ link: Link, _ reply: @escaping Gate.Reply) {
         let s = stats[link]!
-        s.seen(counter: frame.counter, now: DispatchTime.now().uptimeNanoseconds)
+        s.seen(counter: counter, now: DispatchTime.now().uptimeNanoseconds)
         if !connected {
             connected = true
             onChange?()
         }
         switch frame {
-        case .ping(_, let tNs, let rttUs):
+        case .ping(let tNs, let rttUs):
             s.phoneRttUs = rttUs
-            pongCounter &+= 1
-            reply(makePong(counter: pongCounter, tNs: tNs, display: target, state: padState))
+            reply(.pong, pongPayload(tNs: tNs, display: target, state: padState))
         case .nextDisplay:
             nextDisplay()
-        case .control(_, let c):
+        case .control(let c):
             apply(c)
-        case .pen(_, let samples):
+        case .pen(let samples):
             if penLink != link {
                 penLink = link
                 onChange?()

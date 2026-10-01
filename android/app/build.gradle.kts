@@ -11,8 +11,8 @@ android {
         applicationId = "ro.soluzy.qalam"
         minSdk = 34
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.0.1-m0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     buildTypes {
@@ -32,4 +32,7 @@ kotlin {
     }
 }
 
-// M0 uses only the platform SDK. AndroidX (Jetpack Ink, motion prediction) comes with M1.
+// The app uses only the platform SDK. JUnit is for the JVM tests of the crypto (src/test).
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+}

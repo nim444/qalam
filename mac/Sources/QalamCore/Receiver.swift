@@ -6,27 +6,33 @@ public enum Link: String {
     case usb = "USB"
 }
 
-/// Listens for the phone on two paths that carry the same frames:
+/// Listens for the phone on two paths that carry the same frames, and hands the raw bytes on
+/// (to the Gate, which opens them):
 /// - UDP (Wi-Fi), advertised over Bonjour as `_qalam._udp` so the phone finds the Mac by itself;
 /// - TCP (USB), which the phone reaches at its own 127.0.0.1 through `adb reverse`. TCP frames
 ///   carry a u16 little-endian length prefix.
 public final class Receiver {
-    public typealias Reply = ([UInt8]) -> Void
+    /// Sends raw bytes back to whoever sent the data (length-prefixed on TCP).
+    public typealias Send = ([UInt8]) -> Void
 
     private let queue: DispatchQueue
-    private let onFrame: (Frame, Link, @escaping Reply) -> Void
+    private let onData: ([UInt8], Link, @escaping Send) -> Void
     private var listeners: [NWListener] = []
 
-    public init(queue: DispatchQueue, onFrame: @escaping (Frame, Link, @escaping Reply) -> Void) {
+    public init(queue: DispatchQueue, onData: @escaping ([UInt8], Link, @escaping Send) -> Void) {
         self.queue = queue
-        self.onFrame = onFrame
+        self.onData = onData
     }
 
-    public func start(serviceName: String) throws {
+    /// `macId` goes in the Bonjour TXT record, so a paired phone finds its own Mac.
+    public func start(serviceName: String, macId: String) throws {
         let port = NWEndpoint.Port(rawValue: Wire.port)!
 
         let udp = try NWListener(using: .udp, on: port)
-        if Wire.testPort == nil { udp.service = NWListener.Service(name: serviceName, type: Wire.serviceType) }
+        if Wire.testPort == nil {
+            let txt = NWTXTRecord(["id": macId, "v": String(Wire.version)])
+            udp.service = NWListener.Service(name: serviceName, type: Wire.serviceType, txtRecord: txt)
+        }
         udp.newConnectionHandler = { [weak self] c in self?.startUDP(c) }
         udp.stateUpdateHandler = { Receiver.report("UDP", $0) }
         udp.serviceRegistrationUpdateHandler = { change in
@@ -62,8 +68,8 @@ public final class Receiver {
     private func receiveUDP(_ c: NWConnection) {
         c.receiveMessage { [weak self] data, _, _, error in
             guard let self else { return }
-            if let data, let frame = Frame.parse([UInt8](data)) {
-                self.onFrame(frame, .wifi) { reply in
+            if let data, !data.isEmpty {
+                self.onData([UInt8](data), .wifi) { reply in
                     c.send(content: Data(reply), completion: .idempotent)
                 }
             }
@@ -84,7 +90,7 @@ public final class Receiver {
             var buf = buffer
             if let data { buf.append(contentsOf: data) }
 
-            let reply: Reply = { r in
+            let reply: Send = { r in
                 var framed = [UInt8(r.count & 0xFF), UInt8(r.count >> 8)]
                 framed.append(contentsOf: r)
                 c.send(content: Data(framed), completion: .idempotent)
@@ -93,9 +99,7 @@ public final class Receiver {
             while buf.count - start >= 2 {
                 let len = Int(buf[start]) | Int(buf[start + 1]) << 8
                 guard buf.count - start - 2 >= len else { break }
-                if let frame = Frame.parse(Array(buf[(start + 2)..<(start + 2 + len)])) {
-                    self.onFrame(frame, .usb, reply)
-                }
+                self.onData(Array(buf[(start + 2)..<(start + 2 + len)]), .usb, reply)
                 start += 2 + len
             }
             buf.removeFirst(start)

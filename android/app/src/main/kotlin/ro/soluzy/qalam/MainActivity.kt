@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -16,13 +17,19 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import kotlin.concurrent.thread
 
 /**
  * The pen pad on the left, the strip on the right: link status, Cursor / Ink, the ink tools,
  * colours, size, undo and clear, and the target display. The Mac owns the state; the strip shows
- * a tap straight away and then follows what the Mac reports in its pongs.
+ * a tap straight away and then follows what the Mac reports in its pongs. Until the phone is
+ * paired, a pairing panel covers the pad.
  */
 class MainActivity : Activity() {
 
@@ -33,6 +40,10 @@ class MainActivity : Activity() {
     private lateinit var inkChip: Chip
     private lateinit var displayChip: Chip
     private lateinit var inkRows: List<View>
+    private lateinit var controls: List<View>
+    private lateinit var panel: PairingPanel
+    private var pairing: Pairing? = null
+    private var pairer: Pairer? = null
     private val tools = mutableListOf<IconButton>()
     private val swatches = mutableListOf<Swatch>()
     private val sizes = mutableListOf<Chip>()
@@ -67,7 +78,7 @@ class MainActivity : Activity() {
             textSize = 11f
             setTextColor(Palette.MUTED)
             setPadding(0, px(6), 0, 0)
-            setOnClickListener { askForHost() }
+            setOnClickListener { if (pairing != null) showPairedMenu() else askForHost() }
         }
 
         cursorChip = Chip(this, "Cursor").apply { onTap { change(Wire.CMD_MODE, 0) { it.copy(mode = 0) } } }
@@ -102,6 +113,17 @@ class MainActivity : Activity() {
         val colorRow = row(swatches, 30, gap = 2)
         val sizeRow = row(sizes, 30)
         inkRows = listOf(toolRow, colorRow, sizeRow)
+        val modeRow = row(listOf(cursorChip, inkChip), 36)
+        val editRow = row(listOf(undo, clear), 36)
+        val displayRow = row(listOf(displayChip), 34)
+        controls = listOf(modeRow, toolRow, colorRow, sizeRow, editRow, displayRow)
+
+        panel = PairingPanel(this).apply {
+            onPick = { mac -> pairWith(mac.name, mac.address) }
+            onAddress = { askForHost(pairing = true) }
+            onCancel = { cancelPairing() }
+        }
+        pairing = PairingStore.load(this)
 
         val strip = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -114,22 +136,26 @@ class MainActivity : Activity() {
                 setTextColor(Palette.TEXT)
             })
             addView(status)
-            addView(row(listOf(cursorChip, inkChip), 36))
+            addView(modeRow)
             addView(toolRow)
             addView(colorRow)
             addView(sizeRow)
-            addView(row(listOf(undo, clear), 36))
+            addView(editRow)
             addView(View(context), LinearLayout.LayoutParams(0, 0, 1f)) // spacer
-            addView(row(listOf(displayChip), 34))
+            addView(displayRow)
             addView(footer)
         }
 
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(pad, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            addView(FrameLayout(context).apply {
+                addView(pad)
+                addView(panel, FrameLayout.LayoutParams(px(400), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
             addView(strip, LinearLayout.LayoutParams(px(196), ViewGroup.LayoutParams.MATCH_PARENT))
         })
         render()
+        showPairingState()
     }
 
     /** A row of equal-width views, [heightDp] tall, with [gap] dp between them. */
@@ -163,6 +189,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         ui.removeCallbacks(tick)
+        cancelPairing()
         pad.penGone() // releases anything held on the Mac before the link closes
         link?.close()
         link = null
@@ -177,11 +204,92 @@ class MainActivity : Activity() {
     }
 
     private fun startLink() {
-        link = Link(this, prefs.getString(PREF_HOST, null)).also { it.start() }
+        link = Link(this, pairing, prefs.getString(PREF_HOST, null)).also { it.start() }
+    }
+
+    private fun restartLink() {
+        link?.close()
+        startLink()
+    }
+
+    // MARK: Pairing
+
+    /** Shows the pairing panel and greys the strip until there's a pairing. */
+    private fun showPairingState() {
+        val paired = pairing != null
+        panel.visibility = if (paired) View.GONE else View.VISIBLE
+        if (!paired) panel.showChoose(link?.status()?.macs ?: emptyList())
+        controls.forEach { row ->
+            row.alpha = if (paired) 1f else 0.3f
+            (row as ViewGroup).let { g -> for (i in 0 until g.childCount) g.getChildAt(i).isEnabled = paired }
+        }
+        render()
+    }
+
+    private fun pairWith(name: String, address: InetSocketAddress) {
+        cancelPairing()
+        panel.showContacting(name)
+        pairer = Pairer(address, phoneName(), object : Pairer.Listener {
+            override fun onCode(code: String, macName: String) = runOnUiThread { panel.showCode(code, macName) }
+            override fun onFailed(why: String) = runOnUiThread {
+                pairer = null
+                panel.showChoose(link?.status()?.macs ?: emptyList(), why)
+            }
+            override fun onPaired(pairing: Pairing) = runOnUiThread {
+                pairer = null
+                PairingStore.save(this@MainActivity, pairing)
+                this@MainActivity.pairing = pairing
+                Toast.makeText(this@MainActivity, "Paired with ${pairing.macName}", Toast.LENGTH_SHORT).show()
+                showPairingState()
+                restartLink()
+            }
+        }).also { it.start() }
+    }
+
+    private fun cancelPairing() {
+        pairer?.cancel()
+        pairer = null
+        if (pairing == null && ::panel.isInitialized) panel.showChoose(link?.status()?.macs ?: emptyList())
+    }
+
+    /** The name the Mac shows, e.g. "Galaxy S26 Ultra". */
+    private fun phoneName(): String =
+        Settings.Global.getString(contentResolver, Settings.Global.DEVICE_NAME)?.takeIf { it.isNotBlank() } ?: android.os.Build.MODEL
+
+    private fun showPairedMenu() {
+        val p = pairing ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Paired with ${p.macName}")
+            .setItems(arrayOf("Mac address…", "Forget this Mac")) { _, which ->
+                if (which == 0) askForHost() else confirmForget()
+            }
+            .show()
+    }
+
+    private fun confirmForget() {
+        AlertDialog.Builder(this)
+            .setTitle("Forget ${pairing?.macName}?")
+            .setMessage("You'll have to pair again before the pen works. Also forget the phone in the Mac's menu (Paired phones).")
+            .setPositiveButton("Forget") { _, _ ->
+                PairingStore.clear(this)
+                pairing = null
+                pad.clearInk()
+                showPairingState()
+                restartLink()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun refresh() {
         val s = link?.status() ?: return
+        if (pairing == null) {
+            panel.updateMacs(s.macs)
+            status.text = "● not paired"
+            status.setTextColor(0xFFE0A030.toInt())
+            footer.text = "Mac address…"
+            return
+        }
         pad.setDisplay(s.displayIndex, s.displayW, s.displayH)
         if (s.state != null && SystemClock.uptimeMillis() - localChangeAt > 800 && s.state != state) {
             state = s.state
@@ -220,7 +328,7 @@ class MainActivity : Activity() {
             }
         )
         displayChip.isEnabled = s.displayCount > 1
-        footer.text = "Mac IP…  ·  %.0f samples/s".format(rate)
+        footer.text = "${pairing?.macName ?: "Mac"} ⋯  ·  %.0f samples/s".format(rate)
     }
 
     private fun render() {
@@ -247,21 +355,32 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun askForHost() {
+    /** A typed Mac address: saved for the link, and (with [pairing]) paired with straight away. */
+    private fun askForHost(pairing: Boolean = false) {
         val input = EditText(this).apply {
-            hint = "blank = find it automatically"
+            hint = if (pairing) "e.g. 192.168.1.20" else "blank = find it automatically"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             setText(prefs.getString(PREF_HOST, ""))
             gravity = Gravity.CENTER
         }
         AlertDialog.Builder(this)
-            .setTitle("Mac IP address")
-            .setMessage("Only needed if the phone can't find the Mac by itself (Bonjour).")
+            .setTitle("Mac address")
+            .setMessage(if (pairing) "For when your Mac isn't listed. On the Mac, its address is in System Settings → Wi-Fi → Details."
+                        else "Only needed if the phone can't find the Mac by itself (Bonjour).")
             .setView(input)
-            .setPositiveButton("Save") { _, _ ->
-                prefs.edit().putString(PREF_HOST, input.text.toString().trim()).apply()
-                link?.close()
-                startLink()
+            .setPositiveButton(if (pairing) "Pair" else "Save") { _, _ ->
+                val host = input.text.toString().trim()
+                prefs.edit().putString(PREF_HOST, host).apply()
+                if (pairing && host.isNotEmpty()) {
+                    thread { // the name lookup can't run on the UI thread
+                        val address = runCatching { InetSocketAddress(InetAddress.getByName(host), Wire.PORT) }.getOrNull()
+                        runOnUiThread {
+                            if (address != null) pairWith(host, address)
+                            else panel.showChoose(link?.status()?.macs ?: emptyList(), "Couldn't find “$host”.")
+                        }
+                    }
+                }
+                restartLink()
             }
             .setNegativeButton("Cancel", null)
             .show()

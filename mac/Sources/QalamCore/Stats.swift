@@ -5,7 +5,7 @@ public final class LinkStats {
     public private(set) var lastSeen: UInt64 = 0 // uptime ns of the last frame of any kind
     public var phoneRttUs: UInt32 = 0            // round trip as measured by the phone's pings
 
-    private var lastCounter: UInt32?
+    private var lastCounter: UInt64?
     private var frames = 0
     private var samples = 0
     private var lost = 0
@@ -14,7 +14,7 @@ public final class LinkStats {
 
     public init() {}
 
-    public func seen(counter: UInt32, now: UInt64) {
+    public func seen(counter: UInt64, now: UInt64) {
         // The phone numbers every frame per link; a jump means frames were lost on the way.
         // A smaller number means the app restarted (or a late, reordered packet): just resync.
         if let last = lastCounter, counter > last { lost += Int(counter - last - 1) }

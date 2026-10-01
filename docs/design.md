@@ -68,7 +68,7 @@ battery, with the screen kept on and immersive mode on so Samsung edge gestures 
   - holds `WifiLock(WIFI_MODE_FULL_LOW_LATENCY)` while the pad is open
 - Discovery and pairing:
   - `NsdManager` finds the Mac's `_qalam._udp` Bonjour service
-  - pairing is a deep link from a QR code (see below), so the app needs no camera code
+  - pairing compares a 6-digit code on both screens (see below), so the app needs no camera
 
 ## Mac app
 
@@ -126,15 +126,19 @@ Exact byte layout: [protocol.md](protocol.md).
 - **v1** (M2): AEAD with a `u64` counter as the nonce, redundant samples on UDP, and control
   messages (mode, tool, undo, clear).
 
-**Pairing and security:**
-
-- The Mac menu shows a QR code:
-  `qalam://pair?id=<mac-id>&k=<32-byte key, base64url>&h=<ip>&p=<port>`.
-- The Samsung camera reads QR codes natively and opens the deep link in the app.
-- Both sides store the key: Android Keystore on the phone, Keychain on the Mac.
-- Frames are encrypted with ChaCha20-Poly1305 (CryptoKit on the Mac; `javax.crypto` on Android 9+).
-- After pairing, Bonjour finds the Mac on any network the two share. Nothing listens beyond
-  the LAN, and an unpaired device can't drive the cursor.
+**Pairing and security (built in M2):**
+- **Pairing compares a 6-digit code**, like Bluetooth's numeric comparison, so the phone needs
+  no camera or QR scanner. The Mac's **Pair a phone…** window opens pairing; the phone lists
+  the Macs it finds.
+- **The exchange:** X25519 public keys. The Mac commits to its random value before seeing the
+  phone's, and both sides show a code derived from all four values. You click Pair on the Mac
+  if they match.
+- **Every frame afterwards** is sealed with AES-256-GCM. Keys come from the pairing key per
+  connection and per direction; the counter is the nonce, and a replay window drops repeats.
+- **Finding the Mac:** Bonjour carries the Mac's id, so a paired phone only talks to its own
+  Mac, at whatever address it has now. If Bonjour finds nothing, it tries the last addresses
+  where the Mac answered.
+- **Exact bytes:** [protocol.md](protocol.md).
 
 ## Milestones
 
@@ -142,7 +146,7 @@ Exact byte layout: [protocol.md](protocol.md).
 |---|---|---|
 | **M0** feel test (**done 1 Oct 2026**) | Pad on the phone → a Swift command-line tool (`qalam-m0`) that moves the cursor and clicks. Wi-Fi via Bonjour with USB fallback, multi-monitor, no crypto | Lag and jitter feel fine over Wi-Fi; hover works at ~2.7× and on a 3440-pt ultrawide |
 | **M1** ink for recording (**built 1 Oct 2026**) | Menu-bar app with the overlay; Cursor/Ink, pen, highlighter, laser, eraser, colours, sizes, undo, clear, fade on the phone strip, the menu and ⌃⌥ hotkeys | A screen recording shows clean handwriting made on the phone |
-| **M2** pairing | QR pairing, Bonjour, encryption, auto-reconnect, settings (display, smoothing) | Works after a reboot or a new IP with no typing |
+| **M2** pairing (**built 1 Oct 2026**) | Pairing by comparing a 6-digit code (X25519 + commitment, no camera), AES-256-GCM on every frame with per-session keys and a replay window, Bonjour by Mac id, last-known-address fallback, forget on both sides | Works after a reboot or a new IP with no typing; unpaired devices are ignored |
 | **M3** USB polish | Android Open Accessory, so USB works without debugging; switching rules tuned with the M0 numbers | The cable works on a phone with developer options off |
 | **M4** tablet | Pressure/tilt tablet events for drawing apps | Pressure works in at least Krita and Photoshop or Affinity |
 | later | Precision region, shapes/arrows, optional Mac preview on the phone | — |

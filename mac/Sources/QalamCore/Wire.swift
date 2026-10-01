@@ -1,19 +1,57 @@
 import CoreGraphics
 import Foundation
 
-/// Wire format v0, as used by the M0 feel test (unencrypted). Spec: docs/protocol.md.
+/// Wire format v1: a 24-byte header, then the payload sealed with AES-256-GCM (Secure.swift);
+/// pairing messages travel in the clear (Pairing.swift). Spec: docs/protocol.md.
 public enum Wire {
     /// 47474. `QALAM_PORT` overrides it for a second, test instance, which then skips Bonjour so
     /// phones never find it.
     public static let port: UInt16 = testPort ?? 47474
     public static let testPort = ProcessInfo.processInfo.environment["QALAM_PORT"].flatMap { UInt16($0) }
     public static let serviceType = "_qalam._udp"
-    public static let headerSize = 8 // "QL" | version | type | counter u32
+    public static let version: UInt8 = 1
+    public static let headerSize = 24 // "QL" | version | type | pairing u32 | session u64 | counter u64
     public static let sampleSize = 16
 }
 
 public enum FrameType: UInt8 {
     case pen = 1, ping = 2, pong = 3, display = 4, control = 5
+    case pairHello = 6, pairCommit = 7, pairNonce = 8, pairReveal = 9
+
+    public var isPairing: Bool { rawValue >= 6 }
+}
+
+/// The 24-byte frame header: in the clear, but authenticated (it's the AEAD's associated data).
+public struct Header {
+    public var type: UInt8
+    public var pairing: UInt32
+    public var session: UInt64
+    public var counter: UInt64
+
+    public init(type: UInt8, pairing: UInt32 = 0, session: UInt64 = 0, counter: UInt64 = 0) {
+        self.type = type
+        self.pairing = pairing
+        self.session = session
+        self.counter = counter
+    }
+
+    public var bytes: [UInt8] {
+        var b: [UInt8] = [0x51, 0x4C, Wire.version, type]
+        putLE(&b, UInt64(pairing), bytes: 4)
+        putLE(&b, session, bytes: 8)
+        putLE(&b, counter, bytes: 8)
+        return b
+    }
+
+    /// nil for anything that isn't a v1 frame (including v0 frames from an old phone app).
+    public static func parse(_ b: [UInt8]) -> Header? {
+        guard b.count >= Wire.headerSize, b[0] == 0x51, b[1] == 0x4C, b[2] == Wire.version else { return nil }
+        var r = LE(b, at: 3)
+        let type = r.u8()
+        let pairing = r.u32()
+        let session = r.read(8)
+        return Header(type: type, pairing: pairing, session: session, counter: r.read(8))
+    }
 }
 
 public struct PenSample {
@@ -60,25 +98,15 @@ public struct PadState {
     public init() {}
 }
 
+/// A decrypted frame from the phone.
 public enum Frame {
-    case pen(counter: UInt32, samples: [PenSample])
-    case ping(counter: UInt32, tNs: Int64, lastRttUs: UInt32)
-    case nextDisplay(counter: UInt32)
-    case control(counter: UInt32, Control)
+    case pen([PenSample])
+    case ping(tNs: Int64, lastRttUs: UInt32)
+    case nextDisplay
+    case control(Control)
 
-    public var counter: UInt32 {
-        switch self {
-        case .pen(let c, _), .ping(let c, _, _), .nextDisplay(let c), .control(let c, _): return c
-        }
-    }
-
-    public static func parse(_ bytes: [UInt8]) -> Frame? {
-        guard bytes.count >= Wire.headerSize, bytes[0] == 0x51, bytes[1] == 0x4C, bytes[2] == 0 else {
-            return nil
-        }
-        var r = LE(bytes, at: 3)
-        let type = r.u8()
-        let counter = r.u32()
+    public static func parse(type: UInt8, payload: [UInt8]) -> Frame? {
+        var r = LE(payload, at: 0)
         switch FrameType(rawValue: type) {
         case .pen:
             guard r.remaining >= 1 else { return nil }
@@ -94,24 +122,24 @@ public enum Frame {
                     tUs: t, x: Double(x) / 65535, y: Double(y) / 65535, pressure: Double(p) / 65535,
                     tiltX: Double(tx) / 100, tiltY: Double(ty) / 100, flags: f))
             }
-            return .pen(counter: counter, samples: samples)
+            return .pen(samples)
         case .ping:
             guard r.remaining >= 12 else { return nil }
             let t = r.i64()
-            return .ping(counter: counter, tNs: t, lastRttUs: r.u32())
+            return .ping(tNs: t, lastRttUs: r.u32())
         case .display:
             guard r.remaining >= 1, r.u8() == 1 else { return nil } // 1 = next display
-            return .nextDisplay(counter: counter)
+            return .nextDisplay
         case .control:
             guard r.remaining >= 2 else { return nil }
             let cmd = r.u8(), value = r.u8()
             switch cmd {
-            case 1: return .control(counter: counter, .mode(value))
-            case 2: return .control(counter: counter, .tool(value))
-            case 3: return .control(counter: counter, .color(value))
-            case 4: return .control(counter: counter, .size(value))
-            case 5: return .control(counter: counter, .undo)
-            case 6: return .control(counter: counter, .clear)
+            case 1: return .control(.mode(value))
+            case 2: return .control(.tool(value))
+            case 3: return .control(.color(value))
+            case 4: return .control(.size(value))
+            case 5: return .control(.undo)
+            case 6: return .control(.clear)
             default: return nil
             }
         default:
@@ -120,14 +148,12 @@ public enum Frame {
     }
 }
 
-/// Pong: echoes the ping's timestamp and describes the target: its size in points (the pad takes
-/// the same shape), its place in the display cycle and its name, then the strip state.
-public func makePong(counter: UInt32, tNs: Int64, display: DisplayTarget, state: PadState) -> [UInt8] {
-    var name = Array(display.name.utf8.prefix(64))
-    while !name.isEmpty, String(validating: name, as: UTF8.self) == nil { name.removeLast() } // whole characters only
-    var b: [UInt8] = [0x51, 0x4C, 0, FrameType.pong.rawValue]
-    b.reserveCapacity(Wire.headerSize + 15 + name.count)
-    putLE(&b, UInt64(counter), bytes: 4)
+/// Pong payload: echoes the ping's timestamp and describes the target: its size in points (the
+/// pad takes the same shape), its place in the display cycle and its name, then the strip state.
+public func pongPayload(tNs: Int64, display: DisplayTarget, state: PadState) -> [UInt8] {
+    let name = utf8Prefix(display.name, 64)
+    var b: [UInt8] = []
+    b.reserveCapacity(19 + name.count)
     putLE(&b, UInt64(bitPattern: tNs), bytes: 8)
     let size = display.bounds.size
     putLE(&b, UInt64(UInt16(clamping: Int(size.width))), bytes: 2)
@@ -142,12 +168,19 @@ public func makePong(counter: UInt32, tNs: Int64, display: DisplayTarget, state:
     return b
 }
 
-private func putLE(_ b: inout [UInt8], _ v: UInt64, bytes: Int) {
+/// The first bytes of `s` as UTF-8, at most `max`, cut at a character boundary.
+func utf8Prefix(_ s: String, _ max: Int) -> [UInt8] {
+    var b = Array(s.utf8.prefix(max))
+    while !b.isEmpty, String(validating: b, as: UTF8.self) == nil { b.removeLast() }
+    return b
+}
+
+func putLE(_ b: inout [UInt8], _ v: UInt64, bytes: Int) {
     for k in 0..<bytes { b.append(UInt8(truncatingIfNeeded: v >> (8 * UInt64(k)))) }
 }
 
 /// Little-endian reader over a byte array. Callers check `remaining` first.
-private struct LE {
+struct LE {
     let b: [UInt8]
     var i: Int
 

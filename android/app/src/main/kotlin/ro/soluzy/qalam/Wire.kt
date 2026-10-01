@@ -3,11 +3,16 @@ package ro.soluzy.qalam
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** Wire format v0, as used by the M0 feel test (unencrypted). Spec: docs/protocol.md. */
+/**
+ * Wire format v1 (docs/protocol.md): a 24-byte header, then the payload sealed with AES-256-GCM
+ * (Link does the sealing); pairing messages travel in the clear (Pairer). The builders here make
+ * payloads only.
+ */
 object Wire {
     const val PORT = 47474
     const val SERVICE_TYPE = "_qalam._udp"
-    const val HEADER = 8 // "QL" | version | type | counter u32
+    const val VERSION = 1
+    const val HEADER = 24 // "QL" | version | type | pairing u32 | session u64 | counter u64
     const val SAMPLE = 16
     const val MAX_SAMPLES = 64
 
@@ -16,6 +21,10 @@ object Wire {
     const val PONG = 3
     const val DISPLAY = 4
     const val CONTROL = 5
+    const val PAIR_HELLO = 6
+    const val PAIR_COMMIT = 7
+    const val PAIR_NONCE = 8
+    const val PAIR_REVEAL = 9
 
     // Control commands (frame type 5)
     const val CMD_MODE = 1
@@ -35,29 +44,31 @@ object Wire {
     fun le(bytes: ByteArray, at: Int = 0): ByteBuffer =
         ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).also { it.position(at) }
 
-    /** Writes the 8-byte header in place; pen frames are built with room left for it. */
-    fun header(frame: ByteArray, type: Int, counter: Int) {
-        le(frame).put(0x51).put(0x4C).put(0).put(type.toByte()).putInt(counter)
+    fun header(type: Int, pairing: Int, session: Long, counter: Long): ByteArray =
+        ByteArray(HEADER).also {
+            le(it).put(0x51).put(0x4C).put(VERSION.toByte()).put(type.toByte()).putInt(pairing).putLong(session).putLong(counter)
+        }
+
+    class Header(val type: Int, val pairing: Int, val session: Long, val counter: Long)
+
+    fun parseHeader(bytes: ByteArray, len: Int): Header? {
+        if (len < HEADER || bytes[0] != 0x51.toByte() || bytes[1] != 0x4C.toByte() || bytes[2] != VERSION.toByte()) return null
+        val b = le(bytes, 3)
+        val type = b.get().toInt() and 0xFF
+        return Header(type, b.int, b.long, b.long)
     }
 
-    fun ping(counter: Int, tNs: Long, lastRttUs: Int): ByteArray {
-        val frame = ByteArray(HEADER + 12)
-        header(frame, PING, counter)
-        le(frame, HEADER).putLong(tNs).putInt(lastRttUs)
-        return frame
-    }
+    fun ping(tNs: Long, lastRttUs: Int): ByteArray = ByteArray(12).also { le(it).putLong(tNs).putInt(lastRttUs) }
 
     /** Asks the Mac to move the pad to the next display (… → all displays → first). */
-    fun nextDisplay(): ByteArray = ByteArray(HEADER + 1).also { it[HEADER] = 1 }
+    fun nextDisplay(): ByteArray = byteArrayOf(1)
 
     /** A strip command for the Mac; for mode, tool, colour and size [value] is the new choice. */
-    fun control(cmd: Int, value: Int = 0): ByteArray =
-        ByteArray(HEADER + 2).also { it[HEADER] = cmd.toByte(); it[HEADER + 1] = value.toByte() }
+    fun control(cmd: Int, value: Int = 0): ByteArray = byteArrayOf(cmd.toByte(), value.toByte())
 
     /**
      * The Mac's strip state, sent in every pong: mode 0 cursor / 1 ink, tool, colour and size
-     * indices, and how many strokes and undo steps its ink has (for following undo/clear done there;
-     * null from an older Mac build that doesn't send them).
+     * indices, and how many strokes and undo steps its ink has (for following undo/clear done there).
      */
     data class PadState(val mode: Int, val tool: Int, val color: Int, val size: Int, val inkStrokes: Int? = null, val inkHistory: Int? = null)
 
@@ -68,29 +79,25 @@ object Wire {
         val displayIndex: Int, // == displayCount means "all displays"
         val displayCount: Int,
         val displayName: String,
-        val state: PadState?, // null from a Mac without ink (qalam-m0 sends defaults)
+        val state: PadState?,
     )
 
-    fun parsePong(bytes: ByteArray, len: Int): Pong? {
-        if (len < HEADER + 12) return null
-        val b = le(bytes)
-        if (b.get() != 0x51.toByte() || b.get() != 0x4C.toByte() || b.get() != 0.toByte() || b.get() != PONG.toByte()) {
-            return null
-        }
-        b.int // Mac's counter, unused
+    /** A decrypted pong payload. */
+    fun parsePong(p: ByteArray): Pong? {
+        if (p.size < 15) return null
+        val b = le(p)
         val t = b.long
         val w = b.short.toInt() and 0xFFFF
         val h = b.short.toInt() and 0xFFFF
-        if (len < HEADER + 15) return Pong(t, w, h, 0, 1, "", null)
         val index = b.get().toInt() and 0xFF
         val count = b.get().toInt() and 0xFF
-        val nameLen = minOf(b.get().toInt() and 0xFF, len - HEADER - 15)
-        val name = String(bytes, HEADER + 15, nameLen, Charsets.UTF_8)
-        val s = HEADER + 15 + nameLen
-        fun u8(i: Int) = bytes[i].toInt() and 0xFF
+        val nameLen = minOf(b.get().toInt() and 0xFF, p.size - 15)
+        val name = String(p, 15, nameLen, Charsets.UTF_8)
+        val s = 15 + nameLen
+        fun u8(i: Int) = p[i].toInt() and 0xFF
         val state = when {
-            len >= s + 8 -> PadState(u8(s), u8(s + 1), u8(s + 2), u8(s + 3), u8(s + 4) or (u8(s + 5) shl 8), u8(s + 6) or (u8(s + 7) shl 8))
-            len >= s + 4 -> PadState(u8(s), u8(s + 1), u8(s + 2), u8(s + 3))
+            p.size >= s + 8 -> PadState(u8(s), u8(s + 1), u8(s + 2), u8(s + 3), u8(s + 4) or (u8(s + 5) shl 8), u8(s + 6) or (u8(s + 7) shl 8))
+            p.size >= s + 4 -> PadState(u8(s), u8(s + 1), u8(s + 2), u8(s + 3))
             else -> null
         }
         return Pong(t, w, h, index, count, name, state)

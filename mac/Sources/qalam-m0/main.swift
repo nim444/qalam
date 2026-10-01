@@ -123,29 +123,33 @@ let injector = Injector(display: target.bounds, dryRun: opts.dryRun, slop: opts.
 let stats: [Link: LinkStats] = [.wifi: LinkStats(), .usb: LinkStats()]
 var penLink: Link?
 var goneReported: Set<Link> = []
-var pongCounter: UInt32 = 0
 
-let receiver = Receiver(queue: queue) { frame, link, reply in
+// Same pairings as the Qalam app (pair the phone there first); qalam-m0 can't pair by itself.
+let gate = Gate(store: PairingStore())
+if gate.store.phones.isEmpty {
+    print("⚠ No phone paired yet: pair it once in the Qalam app (menu → Pair a phone…), then run this again.")
+}
+let receiver = Receiver(queue: queue) { bytes, link, send in gate.handle(bytes, link: link, send: send) }
+gate.onFrame = { frame, counter, link, reply in
     let now = DispatchTime.now().uptimeNanoseconds
     let s = stats[link]!
     if s.lastSeen == 0 || goneReported.contains(link) {
         print("\(timestamp()) \(link.rawValue): phone connected")
         goneReported.remove(link)
     }
-    s.seen(counter: frame.counter, now: now)
+    s.seen(counter: counter, now: now)
 
     switch frame {
-    case .ping(_, let tNs, let rttUs):
+    case .ping(let tNs, let rttUs):
         s.phoneRttUs = rttUs
-        pongCounter &+= 1
-        reply(makePong(counter: pongCounter, tNs: tNs, display: target, state: PadState()))
+        reply(.pong, pongPayload(tNs: tNs, display: target, state: PadState()))
     case .nextDisplay:
         target.next()
         injector.retarget(target.bounds)
         print("\(timestamp()) display → \(target.name) (\(Int(target.bounds.width))×\(Int(target.bounds.height)) pt)")
-    case .control(_, let command):
+    case .control(let command):
         print("\(timestamp()) \(command) ignored: ink lives in the Qalam app")
-    case .pen(_, let samples):
+    case .pen(let samples):
         s.pen(samples: samples.count, now: now)
         if penLink != link {
             print("\(timestamp()) pen frames now arrive on \(link.rawValue)")
@@ -156,7 +160,7 @@ let receiver = Receiver(queue: queue) { frame, link, reply in
 }
 
 do {
-    try receiver.start(serviceName: macName)
+    try receiver.start(serviceName: macName, macId: gate.store.macIdHex)
 } catch {
     print("Can't listen on port \(Wire.port): \(error)")
     exit(1)

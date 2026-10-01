@@ -29,7 +29,7 @@ import kotlin.math.tan
  */
 class PadView(context: Context) : View(context) {
 
-    /** Gets each pen frame, header bytes left blank for the link to fill. Called on the UI thread. */
+    /** Gets each pen frame's payload (the link seals it). Called on the UI thread. */
     var onFrame: ((ByteArray) -> Unit)? = null
 
     /** Width / height of the Mac display; the pad takes this shape. */
@@ -209,7 +209,7 @@ class PadView(context: Context) : View(context) {
     /** Tells the Mac the pen has left (out of hover range, or the app is going away). */
     fun penGone() {
         val frame = newFrame(1)
-        put(Wire.le(frame, Wire.HEADER + 1), lastX, lastY, 0f, 0f, 0f,
+        put(Wire.le(frame, 1), lastX, lastY, 0f, 0f, 0f,
             SystemClock.uptimeMillis() * 1_000_000L, 0)
         onFrame?.invoke(frame)
         touching = false
@@ -223,13 +223,14 @@ class PadView(context: Context) : View(context) {
         return tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER
     }
 
-    private fun newFrame(n: Int) = ByteArray(Wire.HEADER + 1 + n * Wire.SAMPLE).also { it[Wire.HEADER] = n.toByte() }
+    /** A pen payload: sample count, then the samples. */
+    private fun newFrame(n: Int) = ByteArray(1 + n * Wire.SAMPLE).also { it[0] = n.toByte() }
 
     /** One frame per MotionEvent: its historical samples (oldest first), then the current one. */
     private fun emit(e: MotionEvent, touchingNow: Boolean, touchingBefore: Boolean) {
         val n = min(e.historySize + 1, Wire.MAX_SAMPLES)
         val frame = newFrame(n)
-        val b = Wire.le(frame, Wire.HEADER + 1)
+        val b = Wire.le(frame, 1)
         val before = flags(e, touchingBefore)
         for (h in e.historySize - (n - 1) until e.historySize) {
             put(b, e.getHistoricalX(h), e.getHistoricalY(h), e.getHistoricalPressure(h),

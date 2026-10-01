@@ -51,6 +51,9 @@ Wacom-style tablet for macOS:
   phone, from the menu or with ⌃⌥D, or let the pen follow your mouse to another screen.
 - **Wi-Fi first, USB as the fallback**: the phone finds the Mac by itself (Bonjour). If Wi-Fi
   drops, it switches to the USB cable (`adb reverse`) within a second, and back again later.
+- **Paired and encrypted**: pair once by comparing a 6-digit code on both screens (no camera,
+  no account). After that every frame is sealed with AES-256-GCM, and the Mac ignores anything
+  that isn't your phone.
 - **Palm rejection**: only the S Pen counts, so fingers and palms never draw.
 - **Low latency by design**: unbuffered stylus input, every historical sample, Wi-Fi
   low-latency mode, and one-euro smoothing that removes jitter without adding lag.
@@ -113,6 +116,11 @@ cd android && ./gradlew assembleDebug     # → app/build/outputs/apk/debug/app-
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+**Pair the phone (once):**
+1. On the Mac, open Qalam's menu-bar menu → **Pair a phone…**.
+2. On the phone, open Qalam and tap your Mac in the list (or **Mac on the USB cable**).
+3. Both screens show a 6-digit code. If they match, click **Pair** on the Mac.
+
 **First run on the Mac:**
 - **Cursor mode** needs Accessibility, because moving the cursor means posting mouse events.
   In the menu choose **Allow Accessibility…**, then turn Qalam on under System Settings →
@@ -127,8 +135,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 <details>
   <summary>3. Usage</summary>
 
-Open Qalam on the phone. It finds the Mac by itself; if it can't (some networks block
-Bonjour), tap **Mac IP…** at the bottom of the strip and type the Mac's address.
+Open Qalam on the phone. After pairing it finds its Mac by itself: by Bonjour, then at the
+address where it last answered. If your network blocks Bonjour, tap the Mac's name at the bottom
+of the strip and choose **Mac address…**. **Forget this Mac** is in the same place; the Mac's
+menu has **Paired phones** to forget phones there.
 
 **The strip on the phone:**
 
@@ -216,13 +226,17 @@ where the pen is.
 │       ├── MainActivity.kt         # pad + strip, state from the Mac
 │       ├── PadView.kt              # S Pen input → pen frames, the pad's view of the ink
 │       ├── LocalInk.kt             # the phone's copy of the ink (same rules as the Mac)
+│       ├── Crypto.kt               # X25519, HKDF, AES-GCM, replay window
+│       ├── Pairer.kt               # pairing (compare a 6-digit code)
+│       ├── PairingStore.kt         # the pairing key, wrapped by the Android Keystore
+│       ├── PairingPanel.kt         # the pairing screen
 │       ├── Link.kt                 # Wi-Fi (UDP + Bonjour) and USB (TCP) links, failover
 │       ├── StripViews.kt           # strip buttons, icons, palette
 │       └── Wire.kt                 # wire format
 ├── mac/                            # Swift package
 │   └── Sources/
-│       ├── QalamCore/              # wire format, receiver, displays, cursor injection, adb
-│       ├── Qalam/                  # the menu-bar app: controller, ink overlay, menu, hotkeys
+│       ├── QalamCore/              # wire format, encryption (Secure), pairing, receiver, displays, cursor, adb
+│       ├── Qalam/                  # the menu-bar app: controller, ink overlay, menu, hotkeys, pairing window
 │       └── qalam-m0/               # command-line receiver with a latency/jitter log
 ├── scripts/
 │   ├── run.sh                      # build + install + start everything
@@ -250,11 +264,25 @@ cd mac && swift build -c release && .build/release/qalam-m0 --help
 - **Qalam keeps everything on your network.** There are no servers, no accounts and no
   analytics. Only pen samples and strip commands travel, and they go directly between the
   phone and the Mac.
-- **Today's limitation:** the link isn't paired or encrypted yet. While Qalam runs, any device
-  on the same network that speaks the [protocol](docs/protocol.md) could move the cursor or draw
-  on the overlay. Use it on networks you trust, or over USB.
-- **Coming in M2:** pairing by QR code, with every frame encrypted (ChaCha20-Poly1305). It's
-  next on the roadmap.
+- **Pairing** works like Bluetooth's "confirm the code" (numeric comparison):
+  - the two apps exchange X25519 keys
+  - the Mac commits to its random value before it sees the phone's, so a device in the middle
+    can't make the codes match except by a one-in-a-million guess
+  - you approve on the Mac only if both screens show the same 6 digits
+  - the Mac only listens for pairing while its **Pair a phone…** window is open
+- **Every frame is encrypted and authenticated** with AES-256-GCM:
+  - keys are derived per connection and per direction with HKDF from the pairing key
+  - a replay window rejects repeated frames
+  - frames from unpaired devices, old app versions or forgotten phones are dropped without
+    an answer
+- **Keys at rest:**
+  - on the phone, the pairing key is wrapped by a non-exportable Android Keystore key
+  - on the Mac, it's in `~/Library/Application Support/Qalam/pairings.json`, readable only by
+    your user account
+  - forgetting a phone (Mac menu) or the Mac (phone) deletes the key
+- **The details:** [docs/protocol.md](docs/protocol.md). Both implementations are checked
+  against test vectors made from the spec with an independent library (Python
+  `cryptography`).
 
 </details>
 
@@ -277,8 +305,6 @@ recording.
 
 ## Roadmap
 
-- **M2: pairing and encryption.** Scan a QR code from the menu, encrypt every frame, and
-  reconnect automatically.
 - **M3: USB without developer mode.** Android Open Accessory instead of `adb reverse`.
 - **M4: tablet mode.** Real pressure and tilt tablet events for drawing apps (Krita, Photoshop,
   Affinity).

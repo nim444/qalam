@@ -34,8 +34,17 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         let s = app.settings
 
-        menu.addItem(label(app.link.map { "● Phone connected · \($0.name) · \(String(format: "%.1f", $0.rttMs)) ms" }
-            ?? "○ Waiting for the phone… (Bonjour: \(app.macName))"))
+        let phones = app.pairedPhones
+        if phones.isEmpty {
+            menu.addItem(label("No phone paired yet"))
+            menu.addItem(action("Pair a phone…") { self.app.openPairing() })
+        } else {
+            menu.addItem(label(app.link.map { "● Phone connected · \($0.name) · \(String(format: "%.1f", $0.rttMs)) ms" }
+                ?? "○ Waiting for the phone…"))
+        }
+        if app.unpairedKnocking {
+            menu.addItem(label("⚠ An unpaired phone is trying to connect"))
+        }
         menu.addItem(.separator())
 
         menu.addItem(action("Cursor mode", checked: app.mode == .cursor) { self.app.setMode(.cursor) })
@@ -78,6 +87,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(action("Smooth the pen", checked: s.smoothing) { self.app.setSmoothing(!s.smoothing) })
         menu.addItem(.separator())
 
+        if !phones.isEmpty {
+            var items = phones.map { phone in
+                action("Forget “\(phone.name)”") { self.app.forget(phone.id) }
+            }
+            items.append(.separator())
+            items.append(action("Pair another phone…") { self.app.openPairing() })
+            menu.addItem(submenu("Paired phones (\(phones.count))", items))
+        }
         if AXIsProcessTrusted() {
             menu.addItem(label("Accessibility: allowed"))
         } else {
