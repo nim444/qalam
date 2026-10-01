@@ -43,6 +43,8 @@ Wacom-style tablet for macOS:
   right-clicks, and double-clicks work. A small tap slop keeps clicks precise.
 - **Ink mode**: a pen with pressure, a highlighter, a laser pointer that fades, an eraser (or
   hold the side button), 6 colours, 3 sizes, undo, clear, and optional fade-away.
+- **See what you write on the phone too**: the pad keeps a copy of the ink for the current
+  screen, and it stays in step with undo and clear done on the Mac.
 - **Writes on top of everything**: a click-through overlay on every screen, including over
   full-screen apps. Your real mouse keeps working underneath, and recorders capture the ink.
 - **Several monitors**: one screen at a time, or all of them as one surface. Switch from the
@@ -143,8 +145,9 @@ Bonjour), tap **Mac IP…** at the bottom of the strip and type the Mac's addres
 **With the pen:**
 - **Cursor mode:** hover moves the cursor, the tip clicks or drags, the side button (while
   hovering) right-clicks.
-- **Ink mode:** hovering shows a ring where the pen will land, the tip writes, and holding
-  the side button while writing erases.
+- **Ink mode:** hovering shows a ring where the pen will land (on the Mac and on the pad), the
+  tip writes, and holding the side button while writing erases. The pad shows your ink as well,
+  faded when you're back in Cursor mode.
 
 **Hotkeys on the Mac:**
 
@@ -211,7 +214,8 @@ where the pen is.
 ├── android/                        # the phone app (Kotlin, platform SDK only)
 │   └── app/src/main/kotlin/ro/soluzy/qalam/
 │       ├── MainActivity.kt         # pad + strip, state from the Mac
-│       ├── PadView.kt              # S Pen input → pen frames
+│       ├── PadView.kt              # S Pen input → pen frames, the pad's view of the ink
+│       ├── LocalInk.kt             # the phone's copy of the ink (same rules as the Mac)
 │       ├── Link.kt                 # Wi-Fi (UDP + Bonjour) and USB (TCP) links, failover
 │       ├── StripViews.kt           # strip buttons, icons, palette
 │       └── Wire.kt                 # wire format

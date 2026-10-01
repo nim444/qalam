@@ -53,6 +53,10 @@ public struct PadState {
     public var tool: UInt8 = 0
     public var color: UInt8 = 0
     public var size: UInt8 = 1
+    /// The ink on the Mac: strokes showing and undo steps. The phone's copy of the ink follows
+    /// these, so an undo or clear done on the Mac (menu, hotkey, fade) shows on the phone too.
+    public var inkStrokes: UInt16 = 0
+    public var inkHistory: UInt16 = 0
     public init() {}
 }
 
@@ -133,6 +137,8 @@ public func makePong(counter: UInt32, tNs: Int64, display: DisplayTarget, state:
     b.append(UInt8(name.count))
     b.append(contentsOf: name)
     b.append(contentsOf: [state.mode, state.tool, state.color, state.size])
+    putLE(&b, UInt64(state.inkStrokes), bytes: 2)
+    putLE(&b, UInt64(state.inkHistory), bytes: 2)
     return b
 }
 

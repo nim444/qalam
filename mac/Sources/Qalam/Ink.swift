@@ -170,6 +170,7 @@ final class InkBoard {
 
     var isEmpty: Bool { strokes.isEmpty && active == nil }
     var canUndo: Bool { !history.isEmpty }
+    var historyDepth: Int { history.count }
 
     init() {
         rebuildOverlays()

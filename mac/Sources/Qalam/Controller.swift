@@ -58,6 +58,8 @@ final class Controller {
         s.tool = settings.tool.rawValue
         s.color = UInt8(settings.color)
         s.size = UInt8(settings.size)
+        s.inkStrokes = UInt16(clamping: board.strokes.count)
+        s.inkHistory = UInt16(clamping: board.historyDepth)
         return s
     }
 

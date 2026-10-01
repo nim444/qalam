@@ -88,8 +88,14 @@ class MainActivity : Activity() {
         Palette.sizes.forEachIndexed { i, label ->
             sizes += Chip(this, label).apply { onTap { change(Wire.CMD_SIZE, i) { it.copy(size = i) } } }
         }
-        val undo = IconButton(this, Icon.UNDO).apply { contentDescription = "undo"; onTap { link?.control(Wire.CMD_UNDO) } }
-        val clear = IconButton(this, Icon.CLEAR).apply { contentDescription = "clear"; onTap { link?.control(Wire.CMD_CLEAR) } }
+        val undo = IconButton(this, Icon.UNDO).apply {
+            contentDescription = "undo"
+            onTap { pad.undoInk(); link?.control(Wire.CMD_UNDO) }
+        }
+        val clear = IconButton(this, Icon.CLEAR).apply {
+            contentDescription = "clear"
+            onTap { pad.clearInk(); link?.control(Wire.CMD_CLEAR) }
+        }
         displayChip = Chip(this, "Display").apply { onTap { link?.nextDisplay() } }
 
         val toolRow = row(tools, 40)
@@ -176,11 +182,13 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         val s = link?.status() ?: return
-        if (s.displayW > 0 && s.displayH > 0) pad.aspect = s.displayW.toFloat() / s.displayH
+        pad.setDisplay(s.displayIndex, s.displayW, s.displayH)
         if (s.state != null && SystemClock.uptimeMillis() - localChangeAt > 800 && s.state != state) {
             state = s.state
             render()
         }
+        val ink = s.state
+        if (ink?.inkStrokes != null && ink.inkHistory != null) pad.reconcile(ink.inkStrokes, ink.inkHistory)
 
         val now = System.nanoTime()
         val seconds = if (lastTick == 0L) 0.25 else (now - lastTick) / 1e9
@@ -224,6 +232,10 @@ class MainActivity : Activity() {
         sizes.forEachIndexed { i, b -> b.isSelected = state.size == i }
         inkRows.forEach { it.alpha = if (ink) 1f else 0.45f } // still tappable: a tool switches to Ink
 
+        pad.inkMode = ink
+        pad.inkTool = state.tool
+        pad.inkColor = state.color
+        pad.inkSize = state.size
         val tool = Tool.entries.getOrElse(state.tool) { Tool.PEN }
         pad.label = if (ink) "Ink · ${tool.name.lowercase().replaceFirstChar { it.uppercase() }}" else "Cursor"
         pad.edgeColor = when {

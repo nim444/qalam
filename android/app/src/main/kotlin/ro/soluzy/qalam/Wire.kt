@@ -54,8 +54,12 @@ object Wire {
     fun control(cmd: Int, value: Int = 0): ByteArray =
         ByteArray(HEADER + 2).also { it[HEADER] = cmd.toByte(); it[HEADER + 1] = value.toByte() }
 
-    /** The Mac's strip state, sent in every pong: mode 0 cursor / 1 ink, tool, colour and size indices. */
-    data class PadState(val mode: Int, val tool: Int, val color: Int, val size: Int)
+    /**
+     * The Mac's strip state, sent in every pong: mode 0 cursor / 1 ink, tool, colour and size
+     * indices, and how many strokes and undo steps its ink has (for following undo/clear done there;
+     * null from an older Mac build that doesn't send them).
+     */
+    data class PadState(val mode: Int, val tool: Int, val color: Int, val size: Int, val inkStrokes: Int? = null, val inkHistory: Int? = null)
 
     class Pong(
         val tNs: Long,
@@ -83,9 +87,12 @@ object Wire {
         val nameLen = minOf(b.get().toInt() and 0xFF, len - HEADER - 15)
         val name = String(bytes, HEADER + 15, nameLen, Charsets.UTF_8)
         val s = HEADER + 15 + nameLen
-        val state = if (len >= s + 4) {
-            PadState(bytes[s].toInt() and 0xFF, bytes[s + 1].toInt() and 0xFF, bytes[s + 2].toInt() and 0xFF, bytes[s + 3].toInt() and 0xFF)
-        } else null
+        fun u8(i: Int) = bytes[i].toInt() and 0xFF
+        val state = when {
+            len >= s + 8 -> PadState(u8(s), u8(s + 1), u8(s + 2), u8(s + 3), u8(s + 4) or (u8(s + 5) shl 8), u8(s + 6) or (u8(s + 7) shl 8))
+            len >= s + 4 -> PadState(u8(s), u8(s + 1), u8(s + 2), u8(s + 3))
+            else -> null
+        }
         return Pong(t, w, h, index, count, name, state)
     }
 }

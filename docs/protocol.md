@@ -26,7 +26,7 @@ The Mac reads gaps in it as lost frames.
 |---|---|---|---|
 | 1 | pen | phone → Mac | `count u8` then `count` × sample (16 bytes) |
 | 2 | ping | phone → Mac | `t_ns i64` (phone `System.nanoTime`) · `last_rtt_us u32` (shown in the Mac log) |
-| 3 | pong | Mac → phone | `t_ns i64` (echoed) · `display_w u16` · `display_h u16` · `index u8` · `count u8` · `name_len u8` · `name` (UTF-8, ≤ 64 bytes) · `mode u8` · `tool u8` · `color u8` · `size u8` |
+| 3 | pong | Mac → phone | `t_ns i64` (echoed) · `display_w u16` · `display_h u16` · `index u8` · `count u8` · `name_len u8` · `name` (UTF-8, ≤ 64 bytes) · `mode u8` · `tool u8` · `color u8` · `size u8` · `ink_strokes u16` · `ink_history u16` |
 | 4 | display | phone → Mac | `action u8`: 1 = move the pad to the next display |
 | 5 | control | phone → Mac | `cmd u8` · `value u8` (see below) |
 
@@ -40,6 +40,11 @@ The last four bytes are the strip state: the Mac owns it (the phone, the menu an
 all change it), and the phone's strip follows it. `mode` 0 = cursor, 1 = ink; `tool` 0 pen,
 1 highlighter, 2 laser, 3 eraser; `color` an index into the shared palette (red, yellow, green,
 blue, black, white); `size` 0 small, 1 medium, 2 large.
+
+`ink_strokes` and `ink_history` are how many strokes the Mac's ink shows and how many undo
+steps it holds. The phone draws its own copy of the ink as you write, and uses these two numbers
+to follow undo, clear and fade-away done on the Mac (menu, hotkeys). It only adjusts once the pen
+has been quiet for a moment.
 
 **Control commands** (type 5): `cmd` 1 mode, 2 tool, 3 colour, 4 size (each with the new value),
 5 undo, 6 clear (value ignored). Choosing a tool or a colour also switches to Ink mode.

@@ -1,7 +1,9 @@
 package ro.soluzy.qalam
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Handler
@@ -13,6 +15,7 @@ import android.view.View
 import java.nio.ByteBuffer
 import kotlin.math.atan
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -21,7 +24,8 @@ import kotlin.math.tan
 /**
  * The pen pad. A rectangle with the target Mac display's shape; every S Pen sample on it
  * (hover and touch, with pressure, tilt and the side button) becomes a pen frame for the Mac.
- * Fingers are ignored, so a resting palm never moves the cursor.
+ * Fingers are ignored, so a resting palm never moves the cursor. In Ink mode the pad also shows
+ * a copy of the ink ([LocalInk]), so you can see what you've written.
  */
 class PadView(context: Context) : View(context) {
 
@@ -56,6 +60,57 @@ class PadView(context: Context) : View(context) {
             }
         }
 
+    /** Ink mode: the pen writes, and the pad shows the ink (dimmed in Cursor mode). */
+    var inkMode = false
+        set(value) {
+            if (value != field) {
+                field = value
+                if (!value) endInk()
+                invalidate()
+            }
+        }
+    var inkTool = LocalInk.PEN
+    var inkColor = 0
+    var inkSize = 1
+
+    val ink = LocalInk()
+    private var inkTouching = false
+    private var displayIndex = 0
+    private var displayW = 1512f
+    private var displayH = 982f
+    private var cache: Bitmap? = null
+    private var cacheKey = ""
+
+    /** The Mac's target display: its place in the cycle and its size in points. */
+    fun setDisplay(index: Int, w: Int, h: Int) {
+        if (w <= 0 || h <= 0) return
+        if (index != displayIndex || w.toFloat() != displayW || h.toFloat() != displayH) {
+            endInk()
+            displayIndex = index
+            displayW = w.toFloat()
+            displayH = h.toFloat()
+            invalidate()
+        }
+        aspect = w.toFloat() / h
+    }
+
+    fun undoInk() {
+        ink.undo()
+        invalidate()
+    }
+
+    fun clearInk() {
+        ink.clear()
+        invalidate()
+    }
+
+    /** Follows undo / clear / fade done on the Mac (from its pongs). */
+    fun reconcile(macStrokes: Int, macHistory: Int) {
+        val v = ink.version
+        ink.reconcile(macStrokes, macHistory)
+        if (ink.version != v) invalidate()
+    }
+
     /** What the pen is doing, for the side panel. */
     var penState = "away"
         private set
@@ -82,6 +137,8 @@ class PadView(context: Context) : View(context) {
     }
     private val touchDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF4FD1C5.toInt() }
     private val caption = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF6E6E76.toInt(); textSize = 12 * density }
+    private val inkRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.5f * density }
+    private val dimInk = Paint().apply { alpha = 90 } // Cursor mode: the ink is still on the Mac, shown faintly
 
     // Android sends HOVER_EXIT just before the tip touches down. Only call the pen "gone" if no
     // touch follows shortly, otherwise every tap would flash an out-of-range on the Mac.
@@ -217,19 +274,85 @@ class PadView(context: Context) : View(context) {
         b.putShort((tiltY * 100).roundToInt().toShort())
         b.put(flags.toByte())
         b.put(0)
+        if (inkMode) feedInk(nx, ny, pressure, flags)
+    }
+
+    /** The same decisions the Mac makes for each sample (Controller.ink), on the local copy. */
+    private fun feedInk(nx: Float, ny: Float, pressure: Float, flags: Int) {
+        val touchingNow = flags and Wire.TOUCHING != 0
+        if (flags and Wire.IN_RANGE == 0 && !touchingNow) {
+            endInk()
+            return
+        }
+        if (touchingNow) {
+            if (inkTouching) {
+                ink.extend(nx, ny, pressure, displayIndex)
+            } else {
+                inkTouching = true
+                // Holding the side button turns any tool into the eraser, as on the Mac.
+                val tool = if (flags and (Wire.BUTTON or Wire.ERASER) != 0) LocalInk.ERASER else inkTool
+                ink.begin(nx, ny, pressure, tool, inkColor, inkSize, displayIndex, displayW, displayH)
+            }
+        } else {
+            endInk()
+        }
+    }
+
+    private fun endInk() {
+        if (inkTouching) {
+            inkTouching = false
+            ink.end()
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
         val r = 14 * density
         canvas.drawRoundRect(pad, r, r, padFill)
+
+        // The ink: finished strokes from a cached bitmap, the stroke being written and the laser live.
+        val scale = pad.width() / displayW // px per Mac point
+        canvas.save()
+        canvas.clipRect(pad)
+        drawCache(scale)?.let { canvas.drawBitmap(it, 0f, 0f, if (inkMode) null else dimInk) }
+        ink.drawActive(canvas, pad, scale)
+        if (ink.laserActive && ink.drawLaser(canvas, pad, scale)) postInvalidateOnAnimation()
+        canvas.restore()
+
         padEdge.color = edgeColor ?: 0xFF2C2C33.toInt()
         padEdge.strokeWidth = (if (edgeColor != null) 2f else 1f) * density
         canvas.drawRoundRect(pad, r, r, padEdge)
         canvas.drawText(label, pad.left + 14 * density, pad.top + 22 * density, caption)
-        if (lastX >= 0) {
-            if (touching) canvas.drawCircle(lastX, lastY, 5 * density, touchDot)
-            else canvas.drawCircle(lastX, lastY, 9 * density, hoverDot)
+        if (lastX < 0) return
+        when {
+            touching && !inkMode -> canvas.drawCircle(lastX, lastY, 5 * density, touchDot)
+            touching -> {} // the stroke itself shows where the pen is
+            inkMode -> {
+                // Hover ring in the ink colour, sized like the Mac's.
+                val base = LocalInk.SIZES[inkSize.coerceIn(0, 2)]
+                val radiusPts = when (inkTool) { LocalInk.ERASER -> base * 3; LocalInk.HIGHLIGHTER -> base * 2; else -> max(4f, base * 0.8f) }
+                inkRing.color = edgeColor ?: 0xFF4FD1C5.toInt()
+                canvas.drawCircle(lastX, lastY, max(5 * density, radiusPts * scale), inkRing)
+            }
+            else -> canvas.drawCircle(lastX, lastY, 9 * density, hoverDot)
         }
+    }
+
+    /** The finished strokes of the current display, re-rendered only when they change. */
+    private fun drawCache(scale: Float): Bitmap? {
+        if (width == 0 || height == 0) return null
+        val key = "${ink.version}/$displayIndex/$width/$height/${pad.left}/${pad.width()}"
+        var bmp = cache
+        if (bmp == null || bmp.width != width || bmp.height != height) {
+            bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            cache = bmp
+            cacheKey = ""
+        }
+        if (key != cacheKey) {
+            bmp.eraseColor(Color.TRANSPARENT)
+            ink.drawFinished(Canvas(bmp), pad, scale, displayIndex)
+            cacheKey = key
+        }
+        return bmp
     }
 
     private companion object {
