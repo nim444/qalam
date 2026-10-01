@@ -77,6 +77,17 @@ From then on every frame between them is encrypted, and the phone finds its Mac 
 even after the Mac's IP address changes. Anything that isn't your paired phone is ignored. The
 details are in *Security and Privacy* below.
 
+## Set up with Claude Code
+
+Open this repo in [Claude Code](https://claude.com/claude-code) and say **"set up Qalam for
+me"**. [CLAUDE.md](CLAUDE.md) tells it what to do:
+- check your tools with `scripts/doctor.sh`
+- build and install both apps
+- walk you through USB debugging, the Mac permissions and pairing
+- sort out whatever goes wrong
+
+Prefer doing it yourself? *Installation* below has the same steps.
+
 ```mermaid
 flowchart LR
   subgraph Phone["Galaxy phone (Kotlin)"]
@@ -117,6 +128,9 @@ ___
 ```bash
 git clone https://github.com/nim444/qalam.git
 cd qalam
+
+# Check what's needed (macOS, Swift, Android SDK, JDK, adb, the phone) and how to fix gaps
+./scripts/doctor.sh
 
 # Everything at once: builds the Mac app into /Applications, installs and opens the phone app
 # on the phone attached with USB debugging, then starts Qalam.
@@ -253,6 +267,7 @@ where the pen is.
 │       ├── Qalam/                  # the menu-bar app: controller, ink overlay, menu, hotkeys, pairing window
 │       └── qalam-m0/               # command-line receiver with a latency/jitter log
 ├── scripts/
+│   ├── doctor.sh                   # checks the tools and the phone, says how to fix gaps
 │   ├── run.sh                      # build + install + start everything
 │   ├── build-mac-app.sh            # assemble Qalam.app
 │   └── make-icon.swift             # draws assets/icon-1024.png
@@ -260,6 +275,7 @@ where the pen is.
 │   ├── research.md                 # prior art and what each project taught us
 │   ├── design.md                   # architecture, milestones, risks
 │   └── protocol.md                 # the bytes on the wire
+├── CLAUDE.md                       # instructions for Claude Code: set-up walkthrough + dev rules
 └── LICENSE                         # Apache-2.0
 ```
 
