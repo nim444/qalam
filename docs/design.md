@@ -94,31 +94,22 @@ battery, with the screen kept on and immersive mode on so Samsung edge gestures 
   "precision region" (a smaller rectangle that follows the cursor) for fine work on a large
   monitor.
 
-## Wire protocol (v0)
+## Transport: Wi-Fi first, USB as the fallback
 
-Pen packets go over UDP on Wi-Fi. Over USB they go through `adb reverse`, which carries TCP
-only, so the same frames are sent length-prefixed with `TCP_NODELAY`.
+Decided on 1 Oct 2026. The phone pings both links every 250 ms and sends pen data on **Wi-Fi**
+while it answers. When Wi-Fi goes quiet for a second, pen data switches to **USB**, and it
+switches back as soon as Wi-Fi answers again. USB runs through `adb reverse`, which the Mac
+keeps in place for any attached phone, so plugging the cable in is all it takes. It needs
+USB debugging on the phone.
 
-```
-frame   = magic "QL" (2) | version u8 | type u8 | counter u64 | AEAD(payload) | tag (16)
-payload = count u8 | sample × count | previous frame's samples (redundancy, UDP only)
-sample (16 bytes, little-endian):
-  t_us     u32   phone clock, µs since session start
-  x, y     u16   normalised to the pad, 0..65535
-  pressure u16   0..65535
-  tilt_x   i16   hundredths of a degree
-  tilt_y   i16
-  flags    u8    bit0 in-range (hover)  bit1 touching  bit2 side button  bit3 eraser
-  _        u8    reserved
-```
+## Wire protocol
 
-- Each frame repeats the previous frame's samples, so one lost UDP packet doesn't leave a gap in
-  the ink. The receiver drops duplicates by `t_us`.
-- `counter` is also the AEAD nonce and the replay guard.
-- Control messages go on the same channel as a different `type`, with a small JSON body:
-  `hello` (device, pad size in mm, sample rate), `display` (Mac → phone: aspect ratio and name),
-  `mode`, `tool`, `undo`, `clear`, and `ping`/`pong` for measuring round-trip time and the
-  clock offset.
+Exact byte layout: [protocol.md](protocol.md).
+
+- **v0** (M0, built): 8-byte header with a per-link counter; pen, ping and pong frames; the
+  pong tells the phone the display's size. No encryption.
+- **v1** (M2): AEAD with a `u64` counter as the nonce, redundant samples on UDP, and control
+  messages (mode, tool, undo, clear).
 
 **Pairing and security:**
 
@@ -134,12 +125,12 @@ sample (16 bytes, little-endian):
 
 | | Goal | Done when |
 |---|---|---|
-| **M0** feel test | Pad on the phone → UDP → a Swift command-line tool that moves the cursor and clicks. Hard-coded IP, no crypto | We know whether Wi-Fi lag and jitter feel fine, whether Air command gets in the way, and how hover feels at ~2.7× |
+| **M0** feel test (**built 1 Oct 2026**, waiting for a test on the phone) | Pad on the phone → a Swift command-line tool (`qalam-m0`) that moves the cursor and clicks. Wi-Fi via Bonjour with USB fallback, no crypto | We know whether Wi-Fi lag and jitter feel fine, whether Air command gets in the way, and how hover feels at ~2.7× (and on the 3440-pt ultrawide) |
 | **M1** ink for recording | Menu-bar app with the overlay; Ink/Cursor switch, colours, undo, clear, laser on the phone strip | A QuickTime screen recording shows clean handwriting made on the phone |
 | **M2** pairing | QR pairing, Bonjour, encryption, auto-reconnect, settings (display, smoothing) | Works after a reboot or a new IP with no typing |
-| **M3** USB | `adb reverse` transport, picked automatically when the cable is in | Lower, steadier lag than Wi-Fi in the latency log |
+| **M3** USB polish | Android Open Accessory, so USB works without debugging; switching rules tuned with the M0 numbers | The cable works on a phone with developer options off |
 | **M4** tablet | Pressure/tilt tablet events for drawing apps | Pressure works in at least Krita and Photoshop or Affinity |
-| later | Precision region, shapes/arrows, Android Open Accessory (USB without debugging), optional Mac preview on the phone | — |
+| later | Precision region, shapes/arrows, optional Mac preview on the phone | — |
 
 ## Risks / to check in M0
 
@@ -153,3 +144,9 @@ sample (16 bytes, little-endian):
 - **macOS Accessibility permission:** macOS ties it to the app's code signature, and an ad-hoc
   build loses it after every rebuild. Sign dev builds with a stable development certificate.
 - **Battery / heat:** with only pen data and a dim screen it should be light; measure it.
+- **Big monitor:** the Mac's main display is a 3440 × 1440 ultrawide, so the whole phone maps to
+  about 5× the distance, against about 2.7× on the MacBook screen. If the cursor is too twitchy
+  there, the precision region (later milestone) moves up.
+- **macOS firewall** is on, so the first Wi-Fi packet makes macOS ask whether `qalam-m0` may
+  accept incoming connections. It may ask again after a rebuild, because ad-hoc signatures
+  change.
