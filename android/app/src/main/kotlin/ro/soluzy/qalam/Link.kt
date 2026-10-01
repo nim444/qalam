@@ -39,6 +39,7 @@ class Link(context: Context, private val manualHost: String?) {
         val displayIndex: Int, // == displayCount means "all displays"
         val displayCount: Int,
         val displayName: String,
+        val state: Wire.PadState?,
     )
 
     private val nsd = context.getSystemService(NsdManager::class.java)
@@ -88,12 +89,17 @@ class Link(context: Context, private val manualHost: String?) {
     }
 
     /** Moves the pad to the next Mac display; the next pong (within 250 ms) brings its shape. */
-    fun nextDisplay() {
+    fun nextDisplay() = sendOnActive(Wire.nextDisplay(), Wire.DISPLAY)
+
+    /** A strip command (Wire.CMD_*). The Mac applies it and reports the result in its pongs. */
+    fun control(cmd: Int, value: Int = 0) = sendOnActive(Wire.control(cmd, value), Wire.CONTROL)
+
+    private fun sendOnActive(frame: ByteArray, type: Int) {
         if (!running) return
         sendExec.execute {
             when (active()) {
-                Kind.WIFI -> sendWifi(Wire.nextDisplay(), Wire.DISPLAY)
-                Kind.USB -> sendUsb(Wire.nextDisplay(), Wire.DISPLAY)
+                Kind.WIFI -> sendWifi(frame, type)
+                Kind.USB -> sendUsb(frame, type)
                 null -> {}
             }
         }
@@ -112,6 +118,7 @@ class Link(context: Context, private val manualHost: String?) {
             displayIndex = display?.displayIndex ?: 0,
             displayCount = display?.displayCount ?: 0,
             displayName = display?.displayName ?: "",
+            state = display?.state,
         )
     }
 

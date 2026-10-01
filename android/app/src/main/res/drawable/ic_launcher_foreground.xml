@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A pen writing a stroke. 108dp canvas, art kept inside the 66dp safe circle. -->
+<!-- A pen writing a stroke (same art as the Mac icon, scripts/make-icon.swift).
+     108dp canvas, art kept inside the 66dp safe circle. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -7,11 +8,18 @@
     android:viewportHeight="108">
     <path
         android:fillColor="#00000000"
-        android:pathData="M30,76 C34,68 38,80 42,72"
-        android:strokeWidth="3.5"
+        android:pathData="M28,77 C33,66 37,82 42,72"
+        android:strokeWidth="4"
         android:strokeColor="#4FD1C5"
         android:strokeLineCap="round" />
-    <path
-        android:fillColor="#ECECEC"
-        android:pathData="M66,32 L76,42 L50,68 L41,71 L44,62 Z" />
+    <!-- The pen along its own axis from the tip, turned 45° up and to the right. -->
+    <group
+        android:rotation="-45"
+        android:translateX="41"
+        android:translateY="71">
+        <path android:fillColor="#CFCFD4" android:pathData="M0,0 L13,-4.6 L13,4.6 Z" />
+        <path android:fillColor="#4FD1C5" android:pathData="M12.8,-5.2 h3.7 v10.4 h-3.7 Z" />
+        <path android:fillColor="#EDEDED" android:pathData="M17.7,-5.2 h27.1 a1.2,1.2 0 0 1 1.2,1.2 v8 a1.2,1.2 0 0 1 -1.2,1.2 h-27.1 a1.2,1.2 0 0 1 -1.2,-1.2 v-8 a1.2,1.2 0 0 1 1.2,-1.2 Z" />
+        <path android:fillColor="#BDBDC2" android:pathData="M47.6,-5.2 h0.8 a2.6,2.6 0 0 1 2.6,2.6 v5.2 a2.6,2.6 0 0 1 -2.6,2.6 h-0.8 a2.6,2.6 0 0 1 -2.6,-2.6 v-5.2 a2.6,2.6 0 0 1 2.6,-2.6 Z" />
+    </group>
 </vector>

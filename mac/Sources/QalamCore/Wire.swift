@@ -1,44 +1,74 @@
 import CoreGraphics
+import Foundation
 
 /// Wire format v0, as used by the M0 feel test (unencrypted). Spec: docs/protocol.md.
-enum Wire {
-    static let port: UInt16 = 47474
-    static let serviceType = "_qalam._udp"
-    static let headerSize = 8 // "QL" | version | type | counter u32
-    static let sampleSize = 16
+public enum Wire {
+    /// 47474. `QALAM_PORT` overrides it for a second, test instance, which then skips Bonjour so
+    /// phones never find it.
+    public static let port: UInt16 = testPort ?? 47474
+    public static let testPort = ProcessInfo.processInfo.environment["QALAM_PORT"].flatMap { UInt16($0) }
+    public static let serviceType = "_qalam._udp"
+    public static let headerSize = 8 // "QL" | version | type | counter u32
+    public static let sampleSize = 16
 }
 
-enum FrameType: UInt8 {
-    case pen = 1, ping = 2, pong = 3, display = 4
+public enum FrameType: UInt8 {
+    case pen = 1, ping = 2, pong = 3, display = 4, control = 5
 }
 
-struct PenSample {
-    var tUs: UInt32       // phone clock, µs since the pad opened
-    var x: Double         // 0...1 across the pad
-    var y: Double
-    var pressure: Double  // 0...1
-    var tiltX: Double     // degrees
-    var tiltY: Double
-    var flags: UInt8
+public struct PenSample {
+    public var tUs: UInt32       // phone clock, µs since the pad opened
+    public var x: Double         // 0...1 across the pad
+    public var y: Double
+    public var pressure: Double  // 0...1
+    public var tiltX: Double     // degrees
+    public var tiltY: Double
+    public var flags: UInt8
 
-    var inRange: Bool { flags & 0x01 != 0 }
-    var touching: Bool { flags & 0x02 != 0 }
-    var button: Bool { flags & 0x04 != 0 }
-    var eraser: Bool { flags & 0x08 != 0 }
+    public var inRange: Bool { flags & 0x01 != 0 }
+    public var touching: Bool { flags & 0x02 != 0 }
+    public var button: Bool { flags & 0x04 != 0 }
+    public var eraser: Bool { flags & 0x08 != 0 }
 }
 
-enum Frame {
+/// Where a sample lands in `rect` (global coordinates, points, top-left origin).
+public func padPoint(_ s: PenSample, in rect: CGRect) -> CGPoint {
+    CGPoint(x: rect.minX + min(s.x * rect.width, rect.width - 1),
+            y: rect.minY + min(s.y * rect.height, rect.height - 1))
+}
+
+/// A command from the phone strip (frame type 5). See docs/protocol.md.
+public enum Control {
+    case mode(UInt8)  // 0 cursor, 1 ink
+    case tool(UInt8)  // 0 pen, 1 highlighter, 2 laser, 3 eraser
+    case color(UInt8) // index into the shared palette
+    case size(UInt8)  // 0 small, 1 medium, 2 large
+    case undo
+    case clear
+}
+
+/// What the Mac tells the phone in every pong, so the strip shows the Mac's real state.
+public struct PadState {
+    public var mode: UInt8 = 0
+    public var tool: UInt8 = 0
+    public var color: UInt8 = 0
+    public var size: UInt8 = 1
+    public init() {}
+}
+
+public enum Frame {
     case pen(counter: UInt32, samples: [PenSample])
     case ping(counter: UInt32, tNs: Int64, lastRttUs: UInt32)
     case nextDisplay(counter: UInt32)
+    case control(counter: UInt32, Control)
 
-    var counter: UInt32 {
+    public var counter: UInt32 {
         switch self {
-        case .pen(let c, _), .ping(let c, _, _), .nextDisplay(let c): return c
+        case .pen(let c, _), .ping(let c, _, _), .nextDisplay(let c), .control(let c, _): return c
         }
     }
 
-    static func parse(_ bytes: [UInt8]) -> Frame? {
+    public static func parse(_ bytes: [UInt8]) -> Frame? {
         guard bytes.count >= Wire.headerSize, bytes[0] == 0x51, bytes[1] == 0x4C, bytes[2] == 0 else {
             return nil
         }
@@ -68,6 +98,18 @@ enum Frame {
         case .display:
             guard r.remaining >= 1, r.u8() == 1 else { return nil } // 1 = next display
             return .nextDisplay(counter: counter)
+        case .control:
+            guard r.remaining >= 2 else { return nil }
+            let cmd = r.u8(), value = r.u8()
+            switch cmd {
+            case 1: return .control(counter: counter, .mode(value))
+            case 2: return .control(counter: counter, .tool(value))
+            case 3: return .control(counter: counter, .color(value))
+            case 4: return .control(counter: counter, .size(value))
+            case 5: return .control(counter: counter, .undo)
+            case 6: return .control(counter: counter, .clear)
+            default: return nil
+            }
         default:
             return nil
         }
@@ -75,8 +117,8 @@ enum Frame {
 }
 
 /// Pong: echoes the ping's timestamp and describes the target: its size in points (the pad takes
-/// the same shape), its place in the display cycle, and its name.
-func makePong(counter: UInt32, tNs: Int64, display: DisplayTarget) -> [UInt8] {
+/// the same shape), its place in the display cycle and its name, then the strip state.
+public func makePong(counter: UInt32, tNs: Int64, display: DisplayTarget, state: PadState) -> [UInt8] {
     var name = Array(display.name.utf8.prefix(64))
     while !name.isEmpty, String(validating: name, as: UTF8.self) == nil { name.removeLast() } // whole characters only
     var b: [UInt8] = [0x51, 0x4C, 0, FrameType.pong.rawValue]
@@ -90,6 +132,7 @@ func makePong(counter: UInt32, tNs: Int64, display: DisplayTarget) -> [UInt8] {
     b.append(UInt8(clamping: display.count))
     b.append(UInt8(name.count))
     b.append(contentsOf: name)
+    b.append(contentsOf: [state.mode, state.tool, state.color, state.size])
     return b
 }
 

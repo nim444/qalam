@@ -7,85 +7,141 @@ import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * M0 feel test: a full-screen pen pad on the left, a status strip on the right. The pen drives
- * the Mac cursor through [Link]; the strip shows which link is live and how fast it answers.
+ * The pen pad on the left, the strip on the right: link status, Cursor / Ink, the ink tools,
+ * colours, size, undo and clear, and the target display. The Mac owns the state; the strip shows
+ * a tap straight away and then follows what the Mac reports in its pongs.
  */
 class MainActivity : Activity() {
 
     private lateinit var pad: PadView
-    private lateinit var linkLine: TextView
-    private lateinit var details: TextView
-    private lateinit var penLine: TextView
-    private lateinit var displayButton: Button
+    private lateinit var status: TextView
+    private lateinit var footer: TextView
+    private lateinit var cursorChip: Chip
+    private lateinit var inkChip: Chip
+    private lateinit var displayChip: Chip
+    private lateinit var inkRows: List<View>
+    private val tools = mutableListOf<IconButton>()
+    private val swatches = mutableListOf<Swatch>()
+    private val sizes = mutableListOf<Chip>()
+
     private var link: Link? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private val prefs by lazy { getSharedPreferences("qalam", MODE_PRIVATE) }
+
+    private var state = Wire.PadState(mode = 0, tool = 0, color = 0, size = 1)
+    private var localChangeAt = 0L // a tap wins over pongs for a moment, so the strip doesn't flicker back
 
     private val ui = Handler(Looper.getMainLooper())
     private var lastTick = 0L
     private val tick = object : Runnable {
         override fun run() {
             refresh()
-            ui.postDelayed(this, 500)
+            ui.postDelayed(this, 250)
         }
     }
+
+    private val dp by lazy { resources.displayMetrics.density }
+    private fun px(v: Int) = (v * dp).toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val dp = resources.displayMetrics.density
 
         pad = PadView(this).apply { onFrame = { frame -> link?.sendPen(frame) } }
 
-        fun text(size: Float, color: Long, bold: Boolean = false) = TextView(this).apply {
-            textSize = size
-            setTextColor(color.toInt())
-            if (bold) typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, (6 * dp).toInt(), 0, 0)
+        status = TextView(this).apply { textSize = 12f; setTextColor(Palette.MUTED) }
+        footer = TextView(this).apply {
+            textSize = 11f
+            setTextColor(Palette.MUTED)
+            setPadding(0, px(6), 0, 0)
+            setOnClickListener { askForHost() }
         }
-        linkLine = text(17f, 0xFFECECEC, bold = true)
-        details = text(12f, 0xFF9A9AA2)
-        penLine = text(12f, 0xFF9A9AA2)
 
-        val side = LinearLayout(this).apply {
+        cursorChip = Chip(this, "Cursor").apply { onTap { change(Wire.CMD_MODE, 0) { it.copy(mode = 0) } } }
+        inkChip = Chip(this, "Ink").apply { onTap { change(Wire.CMD_MODE, 1) { it.copy(mode = 1) } } }
+
+        Tool.entries.forEachIndexed { i, tool ->
+            tools += IconButton(this, tool.icon).apply {
+                contentDescription = tool.name.lowercase()
+                onTap { change(Wire.CMD_TOOL, i) { it.copy(mode = 1, tool = i) } }
+            }
+        }
+        Palette.colors.forEachIndexed { i, color ->
+            swatches += Swatch(this, color).apply {
+                // A colour means writing with it: back to the pen if the eraser or laser was on.
+                onTap { change(Wire.CMD_COLOR, i) { it.copy(mode = 1, color = i, tool = if (it.tool >= 2) 0 else it.tool) } }
+            }
+        }
+        Palette.sizes.forEachIndexed { i, label ->
+            sizes += Chip(this, label).apply { onTap { change(Wire.CMD_SIZE, i) { it.copy(size = i) } } }
+        }
+        val undo = IconButton(this, Icon.UNDO).apply { contentDescription = "undo"; onTap { link?.control(Wire.CMD_UNDO) } }
+        val clear = IconButton(this, Icon.CLEAR).apply { contentDescription = "clear"; onTap { link?.control(Wire.CMD_CLEAR) } }
+        displayChip = Chip(this, "Display").apply { onTap { link?.nextDisplay() } }
+
+        val toolRow = row(tools, 40)
+        val colorRow = row(swatches, 30, gap = 2)
+        val sizeRow = row(sizes, 30)
+        inkRows = listOf(toolRow, colorRow, sizeRow)
+
+        val strip = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xFF111114.toInt())
-            setPadding((14 * dp).toInt(), (18 * dp).toInt(), (14 * dp).toInt(), (14 * dp).toInt())
-            addView(text(20f, 0xFFECECEC, bold = true).apply { text = "Qalam" })
-            addView(text(12f, 0xFF4FD1C5).apply { text = "M0 feel test · cursor" })
-            addView(linkLine)
-            addView(details)
-            addView(penLine)
-            addView(LinearLayout(context), LinearLayout.LayoutParams(0, 0, 1f)) // spacer
-            displayButton = Button(context).apply {
-                text = "Display"
-                isAllCaps = false
-                setOnClickListener { link?.nextDisplay() }
-            }
-            addView(displayButton)
-            addView(Button(context).apply {
-                text = "Mac IP…"
-                setOnClickListener { askForHost() }
+            setPadding(px(12), px(14), px(12), px(10))
+            addView(TextView(context).apply {
+                text = "Qalam"
+                textSize = 18f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Palette.TEXT)
             })
+            addView(status)
+            addView(row(listOf(cursorChip, inkChip), 36))
+            addView(toolRow)
+            addView(colorRow)
+            addView(sizeRow)
+            addView(row(listOf(undo, clear), 36))
+            addView(View(context), LinearLayout.LayoutParams(0, 0, 1f)) // spacer
+            addView(row(listOf(displayChip), 34))
+            addView(footer)
         }
 
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(pad, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-            addView(side, LinearLayout.LayoutParams((190 * dp).toInt(), ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(strip, LinearLayout.LayoutParams(px(196), ViewGroup.LayoutParams.MATCH_PARENT))
         })
+        render()
+    }
+
+    /** A row of equal-width views, [heightDp] tall, with [gap] dp between them. */
+    private fun row(views: List<View>, heightDp: Int, gap: Int = 6) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(heightDp)).apply { topMargin = px(8) }
+        views.forEachIndexed { i, v ->
+            addView(v, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                if (i > 0) marginStart = px(gap)
+            })
+        }
+    }
+
+    private fun change(cmd: Int, value: Int, update: (Wire.PadState) -> Wire.PadState) {
+        state = update(state)
+        localChangeAt = SystemClock.uptimeMillis()
+        render()
+        link?.control(cmd, value)
     }
 
     override fun onResume() {
@@ -121,9 +177,13 @@ class MainActivity : Activity() {
     private fun refresh() {
         val s = link?.status() ?: return
         if (s.displayW > 0 && s.displayH > 0) pad.aspect = s.displayW.toFloat() / s.displayH
+        if (s.state != null && SystemClock.uptimeMillis() - localChangeAt > 800 && s.state != state) {
+            state = s.state
+            render()
+        }
 
         val now = System.nanoTime()
-        val seconds = if (lastTick == 0L) 0.5 else (now - lastTick) / 1e9
+        val seconds = if (lastTick == 0L) 0.25 else (now - lastTick) / 1e9
         lastTick = now
         val rate = pad.takeSampleCount() / seconds
 
@@ -132,32 +192,47 @@ class MainActivity : Activity() {
             Link.Kind.USB -> s.usbRttMs
             null -> null
         }
-        linkLine.text = when {
-            s.active != null && rtt != null -> "● ${s.active.label}  %.1f ms".format(rtt)
+        status.text = when {
+            s.active != null && rtt != null -> "● ${s.active.label} · %.1f ms".format(rtt)
             s.wifiTarget != null -> "● trying Wi-Fi…"
             else -> "● looking for the Mac…"
         }
-        linkLine.setTextColor(
+        status.setTextColor(
             when {
-                rtt == null -> 0xFFE0A030
-                s.active == Link.Kind.WIFI -> 0xFF4FD1C5
-                else -> 0xFF7AA2F7
-            }.toInt()
+                rtt == null -> 0xFFE0A030.toInt()
+                s.active == Link.Kind.WIFI -> Palette.ACCENT
+                else -> 0xFF7AA2F7.toInt()
+            }
         )
-        details.text = buildString {
-            append("Mac: ${s.macName ?: "—"}\n")
-            append("Wi-Fi: ${s.wifiRttMs?.let { "%.1f ms".format(it) } ?: "no answer"}")
-            s.wifiTarget?.let { append("  ($it)") }
-            append("\nUSB: ${s.usbRttMs?.let { "%.1f ms".format(it) } ?: "not connected"}")
-            if (s.displayW > 0) append("\nArea: ${s.displayW}×${s.displayH} pt")
+        displayChip.setText(
+            when {
+                s.displayCount == 0 -> "Display"
+                s.displayIndex >= s.displayCount -> "All displays"
+                else -> "${s.displayName} ${s.displayIndex + 1}/${s.displayCount}"
+            }
+        )
+        displayChip.isEnabled = s.displayCount > 1
+        footer.text = "Mac IP…  ·  %.0f samples/s".format(rate)
+    }
+
+    private fun render() {
+        val ink = state.mode == 1
+        cursorChip.isSelected = !ink
+        inkChip.isSelected = ink
+        tools.forEachIndexed { i, b -> b.isSelected = ink && state.tool == i }
+        swatches.forEachIndexed { i, b -> b.isSelected = state.color == i }
+        sizes.forEachIndexed { i, b -> b.isSelected = state.size == i }
+        inkRows.forEach { it.alpha = if (ink) 1f else 0.45f } // still tappable: a tool switches to Ink
+
+        val tool = Tool.entries.getOrElse(state.tool) { Tool.PEN }
+        pad.label = if (ink) "Ink · ${tool.name.lowercase().replaceFirstChar { it.uppercase() }}" else "Cursor"
+        pad.edgeColor = when {
+            !ink -> null
+            tool == Tool.LASER -> 0xFFFF2D55.toInt()
+            tool == Tool.ERASER -> Palette.TEXT
+            state.color == 4 -> Palette.MUTED // black would vanish on the dark pad
+            else -> Palette.colors.getOrElse(state.color) { Palette.ACCENT }
         }
-        displayButton.text = when {
-            s.displayCount == 0 -> "Display"
-            s.displayIndex >= s.displayCount -> "All displays ▸"
-            else -> "${s.displayName}  ${s.displayIndex + 1}/${s.displayCount} ▸"
-        }
-        displayButton.isEnabled = s.displayCount > 1
-        penLine.text = "Pen: ${pad.penState}\n%.0f samples/s · pressure %.2f".format(rate, pad.lastPressure)
     }
 
     private fun askForHost() {
@@ -169,7 +244,7 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle("Mac IP address")
-            .setMessage("qalam-m0 prints it when it starts.")
+            .setMessage("Only needed if the phone can't find the Mac by itself (Bonjour).")
             .setView(input)
             .setPositiveButton("Save") { _, _ ->
                 prefs.edit().putString(PREF_HOST, input.text.toString().trim()).apply()

@@ -3,13 +3,18 @@ import Foundation
 /// Keeps `adb reverse tcp:47474 tcp:47474` in place on every attached Android device, so the
 /// phone reaches this Mac at its own 127.0.0.1 through the USB cable. That is the fallback the
 /// phone uses when Wi-Fi stops answering. Checked every 3 s, so plugging the cable in later works.
-final class AdbReverse {
+public final class AdbReverse {
+    /// Serials with the USB fallback in place; called on the main queue when it changes.
+    public var onChange: (([String]) -> Void)?
+    /// Print progress lines (the command-line tool) or stay quiet (the app).
+    public var verbose = true
+
     private let adb: String?
     private let queue = DispatchQueue(label: "qalam.adb", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var armed: Set<String> = []
 
-    init() {
+    public init() {
         let candidates = [
             "/opt/homebrew/bin/adb",
             "\(NSHomeDirectory())/Library/Android/sdk/platform-tools/adb",
@@ -18,9 +23,11 @@ final class AdbReverse {
         adb = candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    func start() {
+    public var available: Bool { adb != nil }
+
+    public func start() {
         guard adb != nil else {
-            print("USB fallback off: adb not found")
+            if verbose { print("USB fallback off: adb not found") }
             return
         }
         let t = DispatchSource.makeTimerSource(queue: queue)
@@ -38,18 +45,25 @@ final class AdbReverse {
         }
 
         let rule = "tcp:\(Wire.port)"
+        var changed = false
         for serial in serials where !armed.contains(serial) {
             if !run(["-s", serial, "reverse", "--list"]).contains(rule) {
                 _ = run(["-s", serial, "reverse", rule, rule])
             }
             if run(["-s", serial, "reverse", "--list"]).contains(rule) {
                 armed.insert(serial)
-                print("USB fallback ready on \(serial) (adb reverse \(rule))")
+                if verbose { print("USB fallback ready on \(serial) (adb reverse \(rule))") }
+                changed = true
             }
         }
         for serial in armed.subtracting(serials) {
             armed.remove(serial)
-            print("USB fallback: \(serial) disconnected")
+            if verbose { print("USB fallback: \(serial) disconnected") }
+            changed = true
+        }
+        if changed {
+            let list = armed.sorted()
+            DispatchQueue.main.async { self.onChange?(list) }
         }
     }
 

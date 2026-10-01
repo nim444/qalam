@@ -44,7 +44,7 @@ toolbar strip.
 │                                           │  Cursor  │
 │        pad: same aspect as the            │  Ink     │
 │        target Mac display                 │  ● ● ● ● │
-│        (~112 × 73 mm on a 14" MBP)        │  laser   │
+│        (~112 × 73 mm for a 14" MacBook)    │  laser   │
 │                                           │  undo    │
 │                                           │  clear   │
 └───────────────────────────────────────────┴──────────┘
@@ -72,8 +72,7 @@ battery, with the screen kept on and immersive mode on so Samsung edge gestures 
 
 ## Mac app
 
-- Swift / SwiftUI `MenuBarExtra` with no Dock icon, same family as GGTyper / Kelid. Target
-  macOS 15+.
+- AppKit menu-bar app (`NSStatusItem`, no Dock icon). Target macOS 15+.
 - Receiver: `NWListener` on UDP and TCP, advertising `_qalam._udp` via Bonjour. Each sample goes
   through a one-euro filter, which smooths the jitter that the ~2.7× scale-up amplifies without
   adding lag on fast strokes.
@@ -141,14 +140,14 @@ Exact byte layout: [protocol.md](protocol.md).
 
 | | Goal | Done when |
 |---|---|---|
-| **M0** feel test (**built 1 Oct 2026**, waiting for a test on the phone) | Pad on the phone → a Swift command-line tool (`qalam-m0`) that moves the cursor and clicks. Wi-Fi via Bonjour with USB fallback, no crypto | We know whether Wi-Fi lag and jitter feel fine, whether Air command gets in the way, and how hover feels at ~2.7× (and on the 3440-pt ultrawide) |
-| **M1** ink for recording | Menu-bar app with the overlay; Ink/Cursor switch, colours, undo, clear, laser on the phone strip | A QuickTime screen recording shows clean handwriting made on the phone |
+| **M0** feel test (**done 1 Oct 2026**) | Pad on the phone → a Swift command-line tool (`qalam-m0`) that moves the cursor and clicks. Wi-Fi via Bonjour with USB fallback, multi-monitor, no crypto | Lag and jitter feel fine over Wi-Fi; hover works at ~2.7× and on a 3440-pt ultrawide |
+| **M1** ink for recording (**built 1 Oct 2026**) | Menu-bar app with the overlay; Cursor/Ink, pen, highlighter, laser, eraser, colours, sizes, undo, clear, fade on the phone strip, the menu and ⌃⌥ hotkeys | A screen recording shows clean handwriting made on the phone |
 | **M2** pairing | QR pairing, Bonjour, encryption, auto-reconnect, settings (display, smoothing) | Works after a reboot or a new IP with no typing |
 | **M3** USB polish | Android Open Accessory, so USB works without debugging; switching rules tuned with the M0 numbers | The cable works on a phone with developer options off |
 | **M4** tablet | Pressure/tilt tablet events for drawing apps | Pressure works in at least Krita and Photoshop or Affinity |
 | later | Precision region, shapes/arrows, optional Mac preview on the phone | — |
 
-## Risks / to check in M0
+## Risks and things to watch
 
 - **Air command:** pressing the side button while hovering opens Samsung's Air command menu. It
   may need to be turned off in Settings → S Pen, or the button may simply not reach the app
@@ -160,9 +159,9 @@ Exact byte layout: [protocol.md](protocol.md).
 - **macOS Accessibility permission:** macOS ties it to the app's code signature, and an ad-hoc
   build loses it after every rebuild. Sign dev builds with a stable development certificate.
 - **Battery / heat:** with only pen data and a dim screen it should be light; measure it.
-- **Big monitor:** the Mac's main display is a 3440 × 1440 ultrawide, so the whole phone maps to
-  about 5× the distance, against about 2.7× on the MacBook screen. If the cursor is too twitchy
-  there, the precision region (later milestone) moves up.
-- **macOS firewall** is on, so the first Wi-Fi packet makes macOS ask whether `qalam-m0` may
+- **Big monitors:** on a 3440 × 1440 ultrawide the whole phone maps to about 5× the distance,
+  against about 2.7× on a 14" MacBook screen. If the cursor is too twitchy there, the precision
+  region (later milestone) moves up.
+- **macOS firewall:** if it's on, the first Wi-Fi packet makes macOS ask whether Qalam may
   accept incoming connections. It may ask again after a rebuild, because ad-hoc signatures
   change.

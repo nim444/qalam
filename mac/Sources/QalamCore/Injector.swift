@@ -4,7 +4,7 @@ import CoreGraphics
 /// Turns pen samples into Mac mouse events: hover moves the cursor, the tip is the left button,
 /// the side button (pressed while hovering) is the right button. This is M0's Cursor mode; real
 /// tablet events with pressure come in M4.
-final class Injector {
+public final class Injector {
     private var display: CGRect // target area in global coordinates (points, top-left origin)
     private let dryRun: Bool
     private let slop: Double    // points the tip may wander after touching before it counts as a drag
@@ -20,21 +20,24 @@ final class Injector {
     private var lastDownPoint = CGPoint(x: -100, y: -100)
     private var lastPosted = CGPoint(x: -1, y: -1)
 
-    private(set) var state = "away"
-    private(set) var lastActive: TimeInterval = 0 // uptime of the last sample with the pen near the screen
-    var holding: Bool { touching || rightDown }
+    public private(set) var state = "away"
+    public private(set) var lastActive: TimeInterval = 0 // uptime of the last sample with the pen near the screen
+    public var holding: Bool { touching || rightDown }
 
-    init(display: CGRect, dryRun: Bool, slop: Double, smooth: Bool) {
+    public var smoothing: Bool {
+        get { smoother != nil }
+        set { smoother = newValue ? Smoother() : nil }
+    }
+
+    public init(display: CGRect, dryRun: Bool, slop: Double, smooth: Bool) {
         self.display = display
         self.dryRun = dryRun
         self.slop = slop
         self.smoother = smooth ? Smoother() : nil
     }
 
-    func apply(_ s: PenSample) {
-        var p = CGPoint(
-            x: display.minX + min(s.x * display.width, display.width - 1),
-            y: display.minY + min(s.y * display.height, display.height - 1))
+    public func apply(_ s: PenSample) {
+        var p = padPoint(s, in: display)
         if let smoother { p = smoother.filter(p, tUs: s.tUs) }
 
         guard s.inRange || s.touching else {
@@ -79,14 +82,14 @@ final class Injector {
     }
 
     /// Maps the pad to another area (display switch). Lets go of anything held first.
-    func retarget(_ rect: CGRect) {
+    public func retarget(_ rect: CGRect) {
         release()
         smoother?.reset()
         display = rect
     }
 
     /// Let go of any held button, e.g. when the pen leaves or the link drops mid-drag.
-    func release() {
+    public func release() {
         if touching {
             touching = false
             post(.leftMouseUp, at: lastPosted, button: .left)
@@ -111,19 +114,21 @@ final class Injector {
 
 /// One-euro filter (Casiez et al., 2012) on x and y: strong smoothing while the pen is slow,
 /// which removes hover jitter, and almost none while it moves fast, so strokes don't lag.
-final class Smoother {
+public final class Smoother {
     private var x = OneEuro()
     private var y = OneEuro()
     private var lastT: UInt32?
 
-    func filter(_ p: CGPoint, tUs: UInt32) -> CGPoint {
+    public init() {}
+
+    public func filter(_ p: CGPoint, tUs: UInt32) -> CGPoint {
         let dt = lastT.map { Double(tUs &- $0) / 1_000_000 } ?? 0
         lastT = tUs
         let step = (dt > 0 && dt < 0.5) ? dt : 1.0 / 240
         return CGPoint(x: x.filter(p.x, dt: step), y: y.filter(p.y, dt: step))
     }
 
-    func reset() {
+    public func reset() {
         x = OneEuro()
         y = OneEuro()
         lastT = nil

@@ -1,11 +1,12 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import QalamCore
 import SystemConfiguration
 
-// qalam-m0: the M0 feel-test receiver. The phone pad sends pen frames over Wi-Fi (UDP, found via
-// Bonjour) or, as a fallback, over USB (TCP through adb reverse); this moves the Mac cursor and
-// prints link numbers every 2 s.
+// qalam-m0: command-line receiver for testing the links. The phone pad sends pen frames over
+// Wi-Fi (UDP, found via Bonjour) or, as a fallback, over USB (TCP through adb reverse); this moves
+// the Mac cursor (cursor mode only, no ink) and prints link numbers every 2 s.
 
 struct Options {
     var display: Int? = 0 // nil = all displays
@@ -137,11 +138,13 @@ let receiver = Receiver(queue: queue) { frame, link, reply in
     case .ping(_, let tNs, let rttUs):
         s.phoneRttUs = rttUs
         pongCounter &+= 1
-        reply(makePong(counter: pongCounter, tNs: tNs, display: target))
+        reply(makePong(counter: pongCounter, tNs: tNs, display: target, state: PadState()))
     case .nextDisplay:
         target.next()
         injector.retarget(target.bounds)
         print("\(timestamp()) display → \(target.name) (\(Int(target.bounds.width))×\(Int(target.bounds.height)) pt)")
+    case .control(_, let command):
+        print("\(timestamp()) \(command) ignored: ink lives in the Qalam app")
     case .pen(_, let samples):
         s.pen(samples: samples.count, now: now)
         if penLink != link {

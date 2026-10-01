@@ -52,21 +52,19 @@ for recording.** The overlay apps all draw with the Mac's own mouse.
    - `androidx.input` `MotionEventPredictor` predicts the next point.
    - Jetpack Ink (`androidx.ink`, stable 1.0, Dec 2025) and `androidx.graphics` front-buffered
      rendering draw the local echo in about 4 ms.
-   - These are AndroidX libraries, so the Android app uses a Gradle wrapper, like
-     wearos-wimhof-monitor, not the no-Gradle build of nk-os's WebView app.
+   - These are AndroidX libraries, so the Android app is a normal Gradle project.
 5. **Mirroring the screen is what makes the others slow.** Penpal is fast because it sends only
    pen data. We don't need a picture of the Mac on the phone: you look at the Mac, as with a
    screenless Wacom Intuos, and hovering shows where the pen will land.
 6. **The phone is about the size of a small Wacom.** The S26 Ultra screen is about 159 × 73 mm in
-   landscape; the active area of a Wacom Intuos S is 152 × 95 mm. To keep the 14" MacBook's
-   1.54:1 shape, the pad uses about 112 × 73 mm (about 2.7× scale). That leaves a strip of about
+   landscape; the active area of a Wacom Intuos S is 152 × 95 mm. To keep a 14" MacBook
+   Pro's 1.54:1 shape, the pad uses about 112 × 73 mm (about 2.7× scale). That leaves a strip of about
    45 mm on the side for the toolbar.
 7. **Transport options:**
    - **Wi-Fi:** UDP on the LAN, Bonjour for discovery. Typically 3–15 ms, with occasional spikes
      when the phone's Wi-Fi power saving kicks in. Fix:
      `WifiManager.createWifiLock(WIFI_MODE_FULL_LOW_LATENCY)`.
-   - **USB with `adb reverse`:** what PenBridge does. Lowest jitter, but needs USB debugging,
-     which is already on for the watch work.
+   - **USB with `adb reverse`:** what PenBridge does. Lowest jitter, but needs USB debugging.
    - **USB with Android Open Accessory:** the Mac acts as USB host and talks bulk transfers, with
      no developer mode. More work; later.
    - **Bluetooth:** rejected as the main channel, because of latency and because of finding 1.

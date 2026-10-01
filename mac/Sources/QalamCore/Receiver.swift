@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-enum Link: String {
+public enum Link: String {
     case wifi = "Wi-Fi"
     case usb = "USB"
 }
@@ -10,23 +10,23 @@ enum Link: String {
 /// - UDP (Wi-Fi), advertised over Bonjour as `_qalam._udp` so the phone finds the Mac by itself;
 /// - TCP (USB), which the phone reaches at its own 127.0.0.1 through `adb reverse`. TCP frames
 ///   carry a u16 little-endian length prefix.
-final class Receiver {
-    typealias Reply = ([UInt8]) -> Void
+public final class Receiver {
+    public typealias Reply = ([UInt8]) -> Void
 
     private let queue: DispatchQueue
     private let onFrame: (Frame, Link, @escaping Reply) -> Void
     private var listeners: [NWListener] = []
 
-    init(queue: DispatchQueue, onFrame: @escaping (Frame, Link, @escaping Reply) -> Void) {
+    public init(queue: DispatchQueue, onFrame: @escaping (Frame, Link, @escaping Reply) -> Void) {
         self.queue = queue
         self.onFrame = onFrame
     }
 
-    func start(serviceName: String) throws {
+    public func start(serviceName: String) throws {
         let port = NWEndpoint.Port(rawValue: Wire.port)!
 
         let udp = try NWListener(using: .udp, on: port)
-        udp.service = NWListener.Service(name: serviceName, type: Wire.serviceType)
+        if Wire.testPort == nil { udp.service = NWListener.Service(name: serviceName, type: Wire.serviceType) }
         udp.newConnectionHandler = { [weak self] c in self?.startUDP(c) }
         udp.stateUpdateHandler = { Receiver.report("UDP", $0) }
         udp.serviceRegistrationUpdateHandler = { change in

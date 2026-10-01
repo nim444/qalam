@@ -1,6 +1,6 @@
 # Wire protocol
 
-## v0: M0 feel test (built 1 Oct 2026, unencrypted)
+## v0 (M0 + M1, unencrypted)
 
 **Port 47474** on the Mac, on both transports:
 
@@ -26,8 +26,9 @@ The Mac reads gaps in it as lost frames.
 |---|---|---|---|
 | 1 | pen | phone → Mac | `count u8` then `count` × sample (16 bytes) |
 | 2 | ping | phone → Mac | `t_ns i64` (phone `System.nanoTime`) · `last_rtt_us u32` (shown in the Mac log) |
-| 3 | pong | Mac → phone | `t_ns i64` (echoed) · `display_w u16` · `display_h u16` · `index u8` · `count u8` · `name_len u8` · `name` (UTF-8, ≤ 64 bytes) |
+| 3 | pong | Mac → phone | `t_ns i64` (echoed) · `display_w u16` · `display_h u16` · `index u8` · `count u8` · `name_len u8` · `name` (UTF-8, ≤ 64 bytes) · `mode u8` · `tool u8` · `color u8` · `size u8` |
 | 4 | display | phone → Mac | `action u8`: 1 = move the pad to the next display |
+| 5 | control | phone → Mac | `cmd u8` · `value u8` (see below) |
 
 The pong describes the area the pad maps to:
 - its size in points, so the phone can give its pad the same shape
@@ -35,9 +36,17 @@ The pong describes the area the pad maps to:
   means all displays as one surface
 - its name, shown on the phone's display button
 
+The last four bytes are the strip state: the Mac owns it (the phone, the menu and the hotkeys
+all change it), and the phone's strip follows it. `mode` 0 = cursor, 1 = ink; `tool` 0 pen,
+1 highlighter, 2 laser, 3 eraser; `color` an index into the shared palette (red, yellow, green,
+blue, black, white); `size` 0 small, 1 medium, 2 large.
+
+**Control commands** (type 5): `cmd` 1 mode, 2 tool, 3 colour, 4 size (each with the new value),
+5 undo, 6 clear (value ignored). Choosing a tool or a colour also switches to Ink mode.
+
 The cycle runs main display → the others → all displays → main again. The phone sees a switch
 in the next pong, within 250 ms. (Pongs from the first M0 build stop after `display_h`, and the
-phone accepts both.)
+phone accepts both, and pongs from `qalam-m0` carry a default state.)
 
 **Sample (16 bytes):**
 

@@ -1,9 +1,9 @@
 import Foundation
 
 /// Numbers for one link, printed every 2 s while the pen is moving.
-final class LinkStats {
-    private(set) var lastSeen: UInt64 = 0 // uptime ns of the last frame of any kind
-    var phoneRttUs: UInt32 = 0            // round trip as measured by the phone's pings
+public final class LinkStats {
+    public private(set) var lastSeen: UInt64 = 0 // uptime ns of the last frame of any kind
+    public var phoneRttUs: UInt32 = 0            // round trip as measured by the phone's pings
 
     private var lastCounter: UInt32?
     private var frames = 0
@@ -12,7 +12,9 @@ final class LinkStats {
     private var lastPen: UInt64?
     private var gapsMs: [Double] = []
 
-    func seen(counter: UInt32, now: UInt64) {
+    public init() {}
+
+    public func seen(counter: UInt32, now: UInt64) {
         // The phone numbers every frame per link; a jump means frames were lost on the way.
         // A smaller number means the app restarted (or a late, reordered packet): just resync.
         if let last = lastCounter, counter > last { lost += Int(counter - last - 1) }
@@ -20,7 +22,7 @@ final class LinkStats {
         lastSeen = now
     }
 
-    func pen(samples n: Int, now: UInt64) {
+    public func pen(samples n: Int, now: UInt64) {
         frames += 1
         samples += n
         if let last = lastPen {
@@ -31,7 +33,7 @@ final class LinkStats {
     }
 
     /// One line for the last interval, or nil when no pen frames arrived. Resets the counters.
-    func line(_ link: Link, seconds: Double) -> String? {
+    public func line(_ link: Link, seconds: Double) -> String? {
         defer {
             frames = 0
             samples = 0

@@ -15,6 +15,15 @@ object Wire {
     const val PING = 2
     const val PONG = 3
     const val DISPLAY = 4
+    const val CONTROL = 5
+
+    // Control commands (frame type 5)
+    const val CMD_MODE = 1
+    const val CMD_TOOL = 2
+    const val CMD_COLOR = 3
+    const val CMD_SIZE = 4
+    const val CMD_UNDO = 5
+    const val CMD_CLEAR = 6
 
     // Sample flags
     const val IN_RANGE = 0x01
@@ -41,6 +50,13 @@ object Wire {
     /** Asks the Mac to move the pad to the next display (… → all displays → first). */
     fun nextDisplay(): ByteArray = ByteArray(HEADER + 1).also { it[HEADER] = 1 }
 
+    /** A strip command for the Mac; for mode, tool, colour and size [value] is the new choice. */
+    fun control(cmd: Int, value: Int = 0): ByteArray =
+        ByteArray(HEADER + 2).also { it[HEADER] = cmd.toByte(); it[HEADER + 1] = value.toByte() }
+
+    /** The Mac's strip state, sent in every pong: mode 0 cursor / 1 ink, tool, colour and size indices. */
+    data class PadState(val mode: Int, val tool: Int, val color: Int, val size: Int)
+
     class Pong(
         val tNs: Long,
         val displayW: Int,
@@ -48,6 +64,7 @@ object Wire {
         val displayIndex: Int, // == displayCount means "all displays"
         val displayCount: Int,
         val displayName: String,
+        val state: PadState?, // null from a Mac without ink (qalam-m0 sends defaults)
     )
 
     fun parsePong(bytes: ByteArray, len: Int): Pong? {
@@ -60,10 +77,15 @@ object Wire {
         val t = b.long
         val w = b.short.toInt() and 0xFFFF
         val h = b.short.toInt() and 0xFFFF
-        if (len < HEADER + 15) return Pong(t, w, h, 0, 1, "")
+        if (len < HEADER + 15) return Pong(t, w, h, 0, 1, "", null)
         val index = b.get().toInt() and 0xFF
         val count = b.get().toInt() and 0xFF
         val nameLen = minOf(b.get().toInt() and 0xFF, len - HEADER - 15)
-        return Pong(t, w, h, index, count, String(bytes, HEADER + 15, nameLen, Charsets.UTF_8))
+        val name = String(bytes, HEADER + 15, nameLen, Charsets.UTF_8)
+        val s = HEADER + 15 + nameLen
+        val state = if (len >= s + 4) {
+            PadState(bytes[s].toInt() and 0xFF, bytes[s + 1].toInt() and 0xFF, bytes[s + 2].toInt() and 0xFF, bytes[s + 3].toInt() and 0xFF)
+        } else null
+        return Pong(t, w, h, index, count, name, state)
     }
 }

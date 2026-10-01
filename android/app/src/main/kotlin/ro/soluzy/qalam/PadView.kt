@@ -38,6 +38,24 @@ class PadView(context: Context) : View(context) {
             }
         }
 
+    /** Pad outline colour (the ink colour in Ink mode); null = the plain grey edge. */
+    var edgeColor: Int? = null
+        set(value) {
+            if (value != field) {
+                field = value
+                invalidate()
+            }
+        }
+
+    /** Small caption in the pad's corner, e.g. "Cursor" or "Ink · Pen". */
+    var label = ""
+        set(value) {
+            if (value != field) {
+                field = value
+                invalidate()
+            }
+        }
+
     /** What the pen is doing, for the side panel. */
     var penState = "away"
         private set
@@ -63,6 +81,7 @@ class PadView(context: Context) : View(context) {
         color = 0xFF4FD1C5.toInt(); style = Paint.Style.STROKE; strokeWidth = 1.5f * density
     }
     private val touchDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF4FD1C5.toInt() }
+    private val caption = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF6E6E76.toInt(); textSize = 12 * density }
 
     // Android sends HOVER_EXIT just before the tip touches down. Only call the pen "gone" if no
     // touch follows shortly, otherwise every tap would flash an out-of-range on the Mac.
@@ -203,7 +222,10 @@ class PadView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val r = 14 * density
         canvas.drawRoundRect(pad, r, r, padFill)
+        padEdge.color = edgeColor ?: 0xFF2C2C33.toInt()
+        padEdge.strokeWidth = (if (edgeColor != null) 2f else 1f) * density
         canvas.drawRoundRect(pad, r, r, padEdge)
+        canvas.drawText(label, pad.left + 14 * density, pad.top + 22 * density, caption)
         if (lastX >= 0) {
             if (touching) canvas.drawCircle(lastX, lastY, 5 * density, touchDot)
             else canvas.drawCircle(lastX, lastY, 9 * density, hoverDot)
