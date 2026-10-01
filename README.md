@@ -319,14 +319,11 @@ recording.
 
 ## Roadmap
 
-- **M3: USB without developer mode.** Android Open Accessory instead of `adb reverse`.
-- **M4: tablet mode.** Real pressure and tilt tablet events for drawing apps (Krita, Photoshop,
-  Affinity).
-- **Later:**
-  - a precision region for big monitors
-  - shapes and arrows
-  - a map of your displays on the phone
-  - signed release builds
+Qalam does what it set out to do. One thing is possible if people ask for it:
+
+- **USB without developer mode.** Android Open Accessory instead of `adb reverse`, so the cable
+  fallback works without USB debugging. [Open an issue](https://github.com/nim444/qalam/issues)
+  if you'd use it.
 
 ____
 <br>

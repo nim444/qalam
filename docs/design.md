@@ -32,7 +32,7 @@ the pen is.
 |---|---|---|---|---|
 | **Cursor** | moves the cursor | click / drag | right-click | Driving the Mac from the couch, presenting |
 | **Ink** | dot on the overlay shows the pen position; the real cursor stays put | draws on the overlay | held = temporary eraser | Writing over a screen recording |
-| **Tablet** (M4) | tablet proximity + move | pressure/tilt tablet events | right-click / configurable | Drawing apps |
+| **Tablet** (not planned) | tablet proximity + move | pressure/tilt tablet events | right-click / configurable | Drawing apps |
 
 Fingers never draw (palm rejection: only `TOOL_TYPE_STYLUS` reaches the pad). Fingers use the
 toolbar strip.
@@ -147,9 +147,11 @@ Exact byte layout: [protocol.md](protocol.md).
 | **M0** feel test (**done 1 Oct 2026**) | Pad on the phone → a Swift command-line tool (`qalam-m0`) that moves the cursor and clicks. Wi-Fi via Bonjour with USB fallback, multi-monitor, no crypto | Lag and jitter feel fine over Wi-Fi; hover works at ~2.7× and on a 3440-pt ultrawide |
 | **M1** ink for recording (**built 1 Oct 2026**) | Menu-bar app with the overlay; Cursor/Ink, pen, highlighter, laser, eraser, colours, sizes, undo, clear, fade on the phone strip, the menu and ⌃⌥ hotkeys | A screen recording shows clean handwriting made on the phone |
 | **M2** pairing (**built 1 Oct 2026**) | Pairing by comparing a 6-digit code (X25519 + commitment, no camera), AES-256-GCM on every frame with per-session keys and a replay window, Bonjour by Mac id, last-known-address fallback, forget on both sides | Works after a reboot or a new IP with no typing; unpaired devices are ignored |
-| **M3** USB polish | Android Open Accessory, so USB works without debugging; switching rules tuned with the M0 numbers | The cable works on a phone with developer options off |
-| **M4** tablet | Pressure/tilt tablet events for drawing apps | Pressure works in at least Krita and Photoshop or Affinity |
-| later | Precision region, shapes/arrows, optional Mac preview on the phone | — |
+| **M3** USB polish (*only if someone asks*) | Android Open Accessory, so USB works without debugging | The cable works on a phone with developer options off |
+
+**Not planned (decided 1 Oct 2026):** a tablet mode with pressure/tilt events for drawing apps
+(was M4), a precision region for big monitors, shapes and arrows, a map of the displays on the
+phone, and an optional Mac preview on the phone.
 
 ## Risks and things to watch
 
