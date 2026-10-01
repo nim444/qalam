@@ -60,6 +60,23 @@ Wacom-style tablet for macOS:
 - **Menu-bar app**: no Dock icon, global ⌃⌥ hotkeys, open at login.
 - **Nothing leaves your network**: no account, no cloud, no analytics.
 
+## Pair once
+
+<div align="center">
+
+![Pairing: the Mac (left) and the phone (right) show the same 6-digit code, then both say paired](assets/pairing.gif)
+
+</div>
+
+1. On the Mac, open Qalam's menu-bar menu → **Pair a phone…**.
+2. On the phone, open Qalam and tap your Mac in the list. **Mac on the USB cable** and **Enter
+   the Mac's address…** are there too.
+3. Both screens show the same 6-digit code. Click **Pair** on the Mac.
+
+From then on every frame between them is encrypted, and the phone finds its Mac by itself,
+even after the Mac's IP address changes. Anything that isn't your paired phone is ignored. The
+details are in *Security and Privacy* below.
+
 ```mermaid
 flowchart LR
   subgraph Phone["Galaxy phone (Kotlin)"]
@@ -116,10 +133,7 @@ cd android && ./gradlew assembleDebug     # → app/build/outputs/apk/debug/app-
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-**Pair the phone (once):**
-1. On the Mac, open Qalam's menu-bar menu → **Pair a phone…**.
-2. On the phone, open Qalam and tap your Mac in the list (or **Mac on the USB cable**).
-3. Both screens show a 6-digit code. If they match, click **Pair** on the Mac.
+**Then pair the phone once:** see [Pair once](#pair-once) above.
 
 **First run on the Mac:**
 - **Cursor mode** needs Accessibility, because moving the cursor means posting mouse events.

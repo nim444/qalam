@@ -10,6 +10,7 @@ final class PairingWindow: NSObject, NSWindowDelegate {
     private let code = NSTextField(labelWithString: "")
     private let pairButton = NSButton(title: "Pair", target: nil, action: nil)
     private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
+    private let stack = NSStackView()
     private let responder: PairingResponder
     private let onClose: () -> Void
     private let autoAccept: Bool
@@ -46,7 +47,8 @@ final class PairingWindow: NSObject, NSWindowDelegate {
 
         let buttons = NSStackView(views: [cancelButton, pairButton])
         buttons.spacing = 12
-        let stack = NSStackView(views: [heading, code, info, buttons])
+        buttons.setHuggingPriority(.required, for: .horizontal) // stay compact, so the row is centred
+        [heading, code, info, buttons].forEach { stack.addArrangedSubview($0) }
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 14
@@ -67,7 +69,14 @@ final class PairingWindow: NSObject, NSWindowDelegate {
     }
 
     private func update() {
-        guard let a = responder.current else {
+        render(responder.current)
+        // Fit the window to what's showing now (the code and the Pair button come and go).
+        stack.layoutSubtreeIfNeeded()
+        panel.setContentSize(NSSize(width: 400, height: stack.fittingSize.height))
+    }
+
+    private func render(_ attempt: PairingResponder.Attempt?) {
+        guard let a = attempt else {
             heading.stringValue = "Pair a phone"
             info.stringValue = "On your phone, open Qalam and tap Pair. Keep this window open until both show the same code."
             code.isHidden = true
