@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    name: Mac app + protocol test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Build (QalamCore, Qalam, qalam-m0)
+        working-directory: mac
+        run: swift build -c release
+
+      - name: Bundle Qalam.app
+        run: scripts/build-mac-app.sh
+
+      # A phone written from docs/protocol.md pairs with the real app (a test instance on its
+      # own port, accepting the code by itself), then checks encryption and replay protection.
+      - name: Protocol test
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet cryptography
+          QALAM_PORT=47480 QALAM_TEST_AUTOPAIR=1 mac/build/Qalam.app/Contents/MacOS/Qalam &
+          APP=$!
+          QALAM_PORT=47480 .venv/bin/python tests/spec_phone.py; STATUS=$?
+          kill "$APP" || true
+          exit "$STATUS"
+
+      - name: Zip the app
+        run: ditto -c -k --keepParent mac/build/Qalam.app Qalam-mac.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Qalam-mac
+          path: Qalam-mac.zip
+          retention-days: 14
+
+  android:
+    name: Android app + crypto tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and test
+        working-directory: android
+        run: ./gradlew assembleDebug testDebugUnitTest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Qalam-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14

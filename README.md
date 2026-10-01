@@ -3,7 +3,9 @@
 ![macOS](https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)
 ![Android](https://img.shields.io/badge/android-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 
+[![CI](https://github.com/nim444/qalam/actions/workflows/ci.yml/badge.svg)](https://github.com/nim444/qalam/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/nim444/qalam)](LICENSE)
+![encrypted](https://img.shields.io/badge/link-AES--256--GCM-4FD1C5)
 
 ____
 <br>
@@ -271,6 +273,8 @@ where the pen is.
 │   ├── run.sh                      # build + install + start everything
 │   ├── build-mac-app.sh            # assemble Qalam.app
 │   └── make-icon.swift             # draws assets/icon-1024.png
+├── tests/
+│   └── spec_phone.py               # a phone written from the protocol spec, run against the app in CI
 ├── docs/
 │   ├── research.md                 # prior art and what each project taught us
 │   ├── design.md                   # architecture, milestones, risks
