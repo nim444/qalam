@@ -33,11 +33,6 @@ Wacom-style tablet for macOS:
 
 </div>
 
-<p align="center">
-  <img src="assets/screenshot-ink.jpg" width="56%" alt="Ink mode: highlighter and pen strokes over the desktop">
-  <img src="assets/screenshot-phone.png" width="42%" alt="The phone: the pad mirrors the ink, the strip on the right">
-</p>
-
 > **The premise.** You already carry a pressure-sensitive digitizer in your pocket. Qalam sends
 > **only the pen** to the Mac (no screen mirroring, no video), so it stays light and fast:
 > every S Pen sample, about 240 a second, a few milliseconds over Wi-Fi.
