@@ -5,7 +5,7 @@ import CoreGraphics
 /// the side button (pressed while hovering) is the right button. This is M0's Cursor mode; real
 /// tablet events with pressure come in M4.
 final class Injector {
-    private let display: CGRect // target display in global coordinates (points, top-left origin)
+    private var display: CGRect // target area in global coordinates (points, top-left origin)
     private let dryRun: Bool
     private let slop: Double    // points the tip may wander after touching before it counts as a drag
     private var smoother: Smoother?
@@ -21,6 +21,7 @@ final class Injector {
     private var lastPosted = CGPoint(x: -1, y: -1)
 
     private(set) var state = "away"
+    private(set) var lastActive: TimeInterval = 0 // uptime of the last sample with the pen near the screen
     var holding: Bool { touching || rightDown }
 
     init(display: CGRect, dryRun: Bool, slop: Double, smooth: Bool) {
@@ -37,6 +38,7 @@ final class Injector {
         if let smoother { p = smoother.filter(p, tUs: s.tUs) }
 
         guard s.inRange || s.touching else {
+            lastActive = 0
             release()
             smoother?.reset() // the pen comes back somewhere else; don't glide there
             state = "away"
@@ -73,6 +75,14 @@ final class Injector {
         }
 
         state = touching ? "touch" : (rightDown ? "hover+button" : "hover")
+        lastActive = ProcessInfo.processInfo.systemUptime
+    }
+
+    /// Maps the pad to another area (display switch). Lets go of anything held first.
+    func retarget(_ rect: CGRect) {
+        release()
+        smoother?.reset()
+        display = rect
     }
 
     /// Let go of any held button, e.g. when the pen leaves or the link drops mid-drag.

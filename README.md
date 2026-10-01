@@ -28,6 +28,9 @@ What it does:
 - The S Pen hovering over the phone moves the Mac cursor.
 - Touching the screen with the pen tip clicks or drags.
 - The side button, pressed while hovering, right-clicks.
+- **Several monitors:** the **display button** on the phone strip moves the pad to the next
+  screen (main → others → **All displays** → main), and the pad takes that screen's shape. If you
+  move the real mouse onto another screen while the pen is away, the pen follows it there.
 - The phone's side strip shows which link is live (Wi-Fi or USB) and its round-trip time.
 - The Mac prints frames per second, lost frames and jitter every 2 s.
 
@@ -42,7 +45,9 @@ Run:
 
 ```sh
 scripts/m0.sh                # build both, install + open on the phone, run the receiver
-scripts/m0.sh --display 1    # drive another display (list them: mac/.build/release/qalam-m0 --list-displays)
+scripts/m0.sh --display 1    # start on another display (list them: mac/.build/release/qalam-m0 --list-displays)
+scripts/m0.sh --display all  # start with the pad spanning every display
+scripts/m0.sh --no-follow    # don't jump to the screen the real mouse moves to
 scripts/m0.sh --raw          # no smoothing, to compare
 ```
 

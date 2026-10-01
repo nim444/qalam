@@ -14,6 +14,7 @@ object Wire {
     const val PEN = 1
     const val PING = 2
     const val PONG = 3
+    const val DISPLAY = 4
 
     // Sample flags
     const val IN_RANGE = 0x01
@@ -37,7 +38,17 @@ object Wire {
         return frame
     }
 
-    class Pong(val tNs: Long, val displayW: Int, val displayH: Int)
+    /** Asks the Mac to move the pad to the next display (… → all displays → first). */
+    fun nextDisplay(): ByteArray = ByteArray(HEADER + 1).also { it[HEADER] = 1 }
+
+    class Pong(
+        val tNs: Long,
+        val displayW: Int,
+        val displayH: Int,
+        val displayIndex: Int, // == displayCount means "all displays"
+        val displayCount: Int,
+        val displayName: String,
+    )
 
     fun parsePong(bytes: ByteArray, len: Int): Pong? {
         if (len < HEADER + 12) return null
@@ -46,6 +57,13 @@ object Wire {
             return null
         }
         b.int // Mac's counter, unused
-        return Pong(b.long, b.short.toInt() and 0xFFFF, b.short.toInt() and 0xFFFF)
+        val t = b.long
+        val w = b.short.toInt() and 0xFFFF
+        val h = b.short.toInt() and 0xFFFF
+        if (len < HEADER + 15) return Pong(t, w, h, 0, 1, "")
+        val index = b.get().toInt() and 0xFF
+        val count = b.get().toInt() and 0xFF
+        val nameLen = minOf(b.get().toInt() and 0xFF, len - HEADER - 15)
+        return Pong(t, w, h, index, count, String(bytes, HEADER + 15, nameLen, Charsets.UTF_8))
     }
 }

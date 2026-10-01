@@ -9,7 +9,7 @@ enum Wire {
 }
 
 enum FrameType: UInt8 {
-    case pen = 1, ping = 2, pong = 3
+    case pen = 1, ping = 2, pong = 3, display = 4
 }
 
 struct PenSample {
@@ -30,10 +30,11 @@ struct PenSample {
 enum Frame {
     case pen(counter: UInt32, samples: [PenSample])
     case ping(counter: UInt32, tNs: Int64, lastRttUs: UInt32)
+    case nextDisplay(counter: UInt32)
 
     var counter: UInt32 {
         switch self {
-        case .pen(let c, _), .ping(let c, _, _): return c
+        case .pen(let c, _), .ping(let c, _, _), .nextDisplay(let c): return c
         }
     }
 
@@ -64,21 +65,31 @@ enum Frame {
             guard r.remaining >= 12 else { return nil }
             let t = r.i64()
             return .ping(counter: counter, tNs: t, lastRttUs: r.u32())
+        case .display:
+            guard r.remaining >= 1, r.u8() == 1 else { return nil } // 1 = next display
+            return .nextDisplay(counter: counter)
         default:
             return nil
         }
     }
 }
 
-/// Pong: echoes the ping's timestamp and tells the phone the target display's size in points,
-/// so the pad can take the same shape.
-func makePong(counter: UInt32, tNs: Int64, display: CGSize) -> [UInt8] {
+/// Pong: echoes the ping's timestamp and describes the target: its size in points (the pad takes
+/// the same shape), its place in the display cycle, and its name.
+func makePong(counter: UInt32, tNs: Int64, display: DisplayTarget) -> [UInt8] {
+    var name = Array(display.name.utf8.prefix(64))
+    while !name.isEmpty, String(validating: name, as: UTF8.self) == nil { name.removeLast() } // whole characters only
     var b: [UInt8] = [0x51, 0x4C, 0, FrameType.pong.rawValue]
-    b.reserveCapacity(Wire.headerSize + 12)
+    b.reserveCapacity(Wire.headerSize + 15 + name.count)
     putLE(&b, UInt64(counter), bytes: 4)
     putLE(&b, UInt64(bitPattern: tNs), bytes: 8)
-    putLE(&b, UInt64(UInt16(clamping: Int(display.width))), bytes: 2)
-    putLE(&b, UInt64(UInt16(clamping: Int(display.height))), bytes: 2)
+    let size = display.bounds.size
+    putLE(&b, UInt64(UInt16(clamping: Int(size.width))), bytes: 2)
+    putLE(&b, UInt64(UInt16(clamping: Int(size.height))), bytes: 2)
+    b.append(UInt8(clamping: display.index))
+    b.append(UInt8(clamping: display.count))
+    b.append(UInt8(name.count))
+    b.append(contentsOf: name)
     return b
 }
 

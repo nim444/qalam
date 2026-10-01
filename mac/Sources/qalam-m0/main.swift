@@ -8,7 +8,8 @@ import SystemConfiguration
 // prints link numbers every 2 s.
 
 struct Options {
-    var display = 0
+    var display: Int? = 0 // nil = all displays
+    var follow = true
     var dryRun = false
     var smooth = true
     var slop = 3.0
@@ -18,9 +19,11 @@ struct Options {
 
 func usage() -> Never {
     print("""
-    usage: qalam-m0 [--display N] [--raw] [--slop POINTS] [--dry-run] [--no-adb] [--list-displays]
+    usage: qalam-m0 [--display N|all] [--no-follow] [--raw] [--slop POINTS] [--dry-run] [--no-adb] [--list-displays]
 
-      --display N      drive display N (see --list-displays; default 0 = main display)
+      --display N      start on display N (see --list-displays; default 0 = main display)
+      --display all    start with the pad spanning all displays
+      --no-follow      don't switch to the display the real mouse is moved to
       --raw            no smoothing (default: one-euro filter on)
       --slop POINTS    how far a tap may wobble before it becomes a drag (default 3)
       --dry-run        receive and print numbers, but don't touch the cursor
@@ -39,7 +42,10 @@ func parseOptions() -> Options {
     var it = CommandLine.arguments.dropFirst().makeIterator()
     while let a = it.next() {
         switch a {
-        case "--display": o.display = Int(number(it.next()))
+        case "--display":
+            let v = it.next()
+            o.display = v == "all" ? nil : Int(number(v))
+        case "--no-follow": o.follow = false
         case "--slop": o.slop = number(it.next())
         case "--raw": o.smooth = false
         case "--dry-run": o.dryRun = true
@@ -49,21 +55,6 @@ func parseOptions() -> Options {
         }
     }
     return o
-}
-
-/// Active displays, main display first.
-func activeDisplays() -> [CGDirectDisplayID] {
-    var ids = [CGDirectDisplayID](repeating: 0, count: 16)
-    var n: UInt32 = 0
-    CGGetActiveDisplayList(16, &ids, &n)
-    let main = CGMainDisplayID()
-    return [main] + ids.prefix(Int(n)).filter { $0 != main }
-}
-
-func displayName(_ id: CGDirectDisplayID) -> String {
-    let key = NSDeviceDescriptionKey("NSScreenNumber")
-    let screen = NSScreen.screens.first { ($0.deviceDescription[key] as? NSNumber)?.uint32Value == id }
-    return screen?.localizedName ?? "Display \(id)"
 }
 
 /// IPv4 addresses of the interfaces that are up, for typing into the phone if Bonjour fails.
@@ -106,12 +97,11 @@ if opts.listDisplays {
     exit(0)
 }
 
-let target = displays[min(max(opts.display, 0), displays.count - 1)]
-let bounds = CGDisplayBounds(target)
+let target = DisplayTarget(index: opts.display)
 let macName = (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac"
 
 print("Qalam M0: feel-test receiver")
-print("Display:   \(displayName(target))  \(Int(bounds.width))×\(Int(bounds.height)) pt")
+print("Display:   \(target.name)  \(Int(target.bounds.width))×\(Int(target.bounds.height)) pt, \(target.count) display(s), follow the mouse \(opts.follow ? "on" : "off")")
 print("Listening: UDP + TCP \(Wire.port), Bonjour \(Wire.serviceType) as \"\(macName)\"")
 print("Mac IPs:   \(lanAddresses().joined(separator: ", "))")
 print("Options:   smoothing \(opts.smooth ? "on" : "off"), tap slop \(opts.slop) pt\(opts.dryRun ? ", DRY RUN (cursor untouched)" : "")")
@@ -128,7 +118,7 @@ if !opts.dryRun {
 }
 
 let queue = DispatchQueue(label: "qalam.rx", qos: .userInteractive)
-let injector = Injector(display: bounds, dryRun: opts.dryRun, slop: opts.slop, smooth: opts.smooth)
+let injector = Injector(display: target.bounds, dryRun: opts.dryRun, slop: opts.slop, smooth: opts.smooth)
 let stats: [Link: LinkStats] = [.wifi: LinkStats(), .usb: LinkStats()]
 var penLink: Link?
 var goneReported: Set<Link> = []
@@ -147,7 +137,11 @@ let receiver = Receiver(queue: queue) { frame, link, reply in
     case .ping(_, let tNs, let rttUs):
         s.phoneRttUs = rttUs
         pongCounter &+= 1
-        reply(makePong(counter: pongCounter, tNs: tNs, display: bounds.size))
+        reply(makePong(counter: pongCounter, tNs: tNs, display: target))
+    case .nextDisplay:
+        target.next()
+        injector.retarget(target.bounds)
+        print("\(timestamp()) display → \(target.name) (\(Int(target.bounds.width))×\(Int(target.bounds.height)) pt)")
     case .pen(_, let samples):
         s.pen(samples: samples.count, now: now)
         if penLink != link {
@@ -176,6 +170,13 @@ watchdog.setEventHandler {
     if injector.holding, let l = penLink, now - stats[l]!.lastSeen > 1_000_000_000 {
         injector.release()
         print("\(timestamp()) \(l.rawValue) went quiet mid-stroke: released the mouse button")
+    }
+    // Follow the mouse: if the real mouse moved the cursor onto another display while the pen
+    // was away, the pad goes there too. (Our own events keep the cursor on the target display.)
+    let penAway = ProcessInfo.processInfo.systemUptime - injector.lastActive > 0.5
+    if opts.follow, let cursor = CGEvent(source: nil)?.location, target.follow(cursor, allowed: penAway) {
+        injector.retarget(target.bounds)
+        print("\(timestamp()) followed the mouse → \(target.name)")
     }
     for (link, s) in stats where s.lastSeen != 0 && !goneReported.contains(link) && now - s.lastSeen > 3_000_000_000 {
         goneReported.insert(link)

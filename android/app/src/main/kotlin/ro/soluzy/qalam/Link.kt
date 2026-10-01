@@ -36,6 +36,9 @@ class Link(context: Context, private val manualHost: String?) {
         val wifiTarget: String?,
         val displayW: Int,
         val displayH: Int,
+        val displayIndex: Int, // == displayCount means "all displays"
+        val displayCount: Int,
+        val displayName: String,
     )
 
     private val nsd = context.getSystemService(NsdManager::class.java)
@@ -55,8 +58,7 @@ class Link(context: Context, private val manualHost: String?) {
     @Volatile private var usbPongAt = 0L
     @Volatile private var usbRttUs = 0
 
-    @Volatile private var displayW = 0
-    @Volatile private var displayH = 0
+    @Volatile private var display: Wire.Pong? = null // the newest pong describes the target display
 
     fun start() {
         running = true
@@ -85,6 +87,18 @@ class Link(context: Context, private val manualHost: String?) {
         }
     }
 
+    /** Moves the pad to the next Mac display; the next pong (within 250 ms) brings its shape. */
+    fun nextDisplay() {
+        if (!running) return
+        sendExec.execute {
+            when (active()) {
+                Kind.WIFI -> sendWifi(Wire.nextDisplay(), Wire.DISPLAY)
+                Kind.USB -> sendUsb(Wire.nextDisplay(), Wire.DISPLAY)
+                null -> {}
+            }
+        }
+    }
+
     fun status(): Status {
         val now = System.nanoTime()
         return Status(
@@ -93,8 +107,11 @@ class Link(context: Context, private val manualHost: String?) {
             usbRttMs = if (tcp != null && alive(usbPongAt, now)) usbRttUs / 1000f else null,
             macName = macName,
             wifiTarget = wifiTarget?.address?.hostAddress,
-            displayW = displayW,
-            displayH = displayH,
+            displayW = display?.displayW ?: 0,
+            displayH = display?.displayH ?: 0,
+            displayIndex = display?.displayIndex ?: 0,
+            displayCount = display?.displayCount ?: 0,
+            displayName = display?.displayName ?: "",
         )
     }
 
@@ -135,7 +152,7 @@ class Link(context: Context, private val manualHost: String?) {
     }
 
     private fun wifiReceiveLoop() {
-        val buf = ByteArray(64)
+        val buf = ByteArray(256)
         val packet = DatagramPacket(buf, buf.size)
         while (running) {
             try {
@@ -147,8 +164,7 @@ class Link(context: Context, private val manualHost: String?) {
             val now = System.nanoTime()
             wifiRttUs = ((now - pong.tNs) / 1000).toInt()
             wifiPongAt = now
-            displayW = pong.displayW
-            displayH = pong.displayH
+            display = pong
         }
     }
 
@@ -186,8 +202,7 @@ class Link(context: Context, private val manualHost: String?) {
                         val now = System.nanoTime()
                         usbRttUs = ((now - pong.tNs) / 1000).toInt()
                         usbPongAt = now
-                        displayW = pong.displayW
-                        displayH = pong.displayH
+                        display = pong
                     }
                 }
             } catch (_: Exception) {

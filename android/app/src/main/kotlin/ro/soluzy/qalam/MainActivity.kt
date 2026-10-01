@@ -28,6 +28,7 @@ class MainActivity : Activity() {
     private lateinit var linkLine: TextView
     private lateinit var details: TextView
     private lateinit var penLine: TextView
+    private lateinit var displayButton: Button
     private var link: Link? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private val prefs by lazy { getSharedPreferences("qalam", MODE_PRIVATE) }
@@ -68,6 +69,12 @@ class MainActivity : Activity() {
             addView(details)
             addView(penLine)
             addView(LinearLayout(context), LinearLayout.LayoutParams(0, 0, 1f)) // spacer
+            displayButton = Button(context).apply {
+                text = "Display"
+                isAllCaps = false
+                setOnClickListener { link?.nextDisplay() }
+            }
+            addView(displayButton)
             addView(Button(context).apply {
                 text = "Mac IP…"
                 setOnClickListener { askForHost() }
@@ -142,8 +149,14 @@ class MainActivity : Activity() {
             append("Wi-Fi: ${s.wifiRttMs?.let { "%.1f ms".format(it) } ?: "no answer"}")
             s.wifiTarget?.let { append("  ($it)") }
             append("\nUSB: ${s.usbRttMs?.let { "%.1f ms".format(it) } ?: "not connected"}")
-            if (s.displayW > 0) append("\nDisplay: ${s.displayW}×${s.displayH} pt")
+            if (s.displayW > 0) append("\nArea: ${s.displayW}×${s.displayH} pt")
         }
+        displayButton.text = when {
+            s.displayCount == 0 -> "Display"
+            s.displayIndex >= s.displayCount -> "All displays ▸"
+            else -> "${s.displayName}  ${s.displayIndex + 1}/${s.displayCount} ▸"
+        }
+        displayButton.isEnabled = s.displayCount > 1
         penLine.text = "Pen: ${pad.penState}\n%.0f samples/s · pressure %.2f".format(rate, pad.lastPressure)
     }
 

@@ -26,9 +26,18 @@ The Mac reads gaps in it as lost frames.
 |---|---|---|---|
 | 1 | pen | phone → Mac | `count u8` then `count` × sample (16 bytes) |
 | 2 | ping | phone → Mac | `t_ns i64` (phone `System.nanoTime`) · `last_rtt_us u32` (shown in the Mac log) |
-| 3 | pong | Mac → phone | `t_ns i64` (echoed) · `display_w u16` · `display_h u16` (target display in points) |
+| 3 | pong | Mac → phone | `t_ns i64` (echoed) · `display_w u16` · `display_h u16` · `index u8` · `count u8` · `name_len u8` · `name` (UTF-8, ≤ 64 bytes) |
+| 4 | display | phone → Mac | `action u8`: 1 = move the pad to the next display |
 
-The pong carries the display size so the phone can give its pad the same shape.
+The pong describes the area the pad maps to:
+- its size in points, so the phone can give its pad the same shape
+- its place in the display cycle: `index` 0 … `count − 1` is one display, and `index == count`
+  means all displays as one surface
+- its name, shown on the phone's display button
+
+The cycle runs main display → the others → all displays → main again. The phone sees a switch
+in the next pong, within 250 ms. (Pongs from the first M0 build stop after `display_h`, and the
+phone accepts both.)
 
 **Sample (16 bytes):**
 

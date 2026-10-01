@@ -94,6 +94,22 @@ battery, with the screen kept on and immersive mode on so Samsung edge gestures 
   "precision region" (a smaller rectangle that follows the cursor) for fine work on a large
   monitor.
 
+## Several monitors
+
+Built 1 Oct 2026. The pad maps to **one display at a time**, which keeps it precise, or to
+**all displays** as one surface (the bounding box of the arrangement). There are two ways to
+switch:
+- the display button on the phone strip cycles main → others → all → main
+- **follow the mouse:** when the real mouse moves the cursor onto another display while the pen
+  is away (no pen sample for 0.5 s), the pad moves there too. Our own events can't trigger
+  this, because they keep the cursor on the current display. Turn it off with `--no-follow`.
+
+On each switch the Mac releases any held button and resets the smoothing. The phone reshapes
+its pad from the next pong. The display list is read again on every check, so plugging a
+monitor in or out works mid-session; if the current display disappears, the main display takes
+over. Later (M1 menu bar): a Mac hotkey to switch, and a small map of the display arrangement
+on the phone.
+
 ## Transport: Wi-Fi first, USB as the fallback
 
 Decided on 1 Oct 2026. The phone pings both links every 250 ms and sends pen data on **Wi-Fi**
