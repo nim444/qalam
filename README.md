@@ -27,11 +27,16 @@ Wacom-style tablet for macOS:
 
 <div align="center">
 
-![Ink mode: highlighter and pen strokes, written with the S Pen, over the desktop](assets/screenshot-ink.jpg)
+![Qalam demo: writing with the S Pen on the phone (bottom) appears on the Mac (top) as you write](assets/demo.gif)
 
-![The phone: the pad mirrors the ink on the left, the strip on the right](assets/screenshot-phone.png)
+<sub>The phone (bottom) and the Mac (top), recorded together. Full 48-second demo, from pairing onwards: <a href="assets/demo.mp4">demo.mp4</a></sub>
 
 </div>
+
+<p align="center">
+  <img src="assets/screenshot-ink.jpg" width="56%" alt="Ink mode: highlighter and pen strokes over the desktop">
+  <img src="assets/screenshot-phone.png" width="42%" alt="The phone: the pad mirrors the ink, the strip on the right">
+</p>
 
 > **The premise.** You already carry a pressure-sensitive digitizer in your pocket. Qalam sends
 > **only the pen** to the Mac (no screen mirroring, no video), so it stays light and fast:
