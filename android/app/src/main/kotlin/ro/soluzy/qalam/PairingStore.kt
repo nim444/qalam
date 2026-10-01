@@ -48,7 +48,7 @@ object PairingStore {
             .putString("key", b64(wrapped))
             .putString("iv", b64(c.iv))
             .putString("hosts", pairing.hosts.joinToString(","))
-            .apply()
+            .commit() // written now: the Mac has already stored its side
     }
 
     /** Remembers where the Mac answered last, for when Bonjour finds nothing. */
@@ -59,7 +59,7 @@ object PairingStore {
     }
 
     fun clear(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit()
         runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(ALIAS) }
     }
 

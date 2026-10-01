@@ -63,7 +63,6 @@ class Link(private val context: Context, private val pairing: Pairing?, private 
     private val nsd = context.getSystemService(NsdManager::class.java)
     private val sendExec = Executors.newSingleThreadExecutor() // every socket write goes through here
     private val timer = Executors.newSingleThreadScheduledExecutor()
-    private val nsdExec = Executors.newSingleThreadExecutor()
     @Volatile private var running = false
     private val startedAt = System.nanoTime()
 
@@ -144,7 +143,6 @@ class Link(private val context: Context, private val pairing: Pairing?, private 
             runCatching { tcp?.close() }
         }
         sendExec.shutdown()
-        nsdExec.shutdown()
     }
 
     private fun alive(pongAt: Long, now: Long) = pongAt != 0L && now - pongAt < ALIVE_NS
@@ -305,7 +303,9 @@ class Link(private val context: Context, private val pairing: Pairing?, private 
             if (resolvers.containsKey(name)) return
             val cb = resolverFor(name)
             resolvers[name] = cb
-            runCatching { nsd.registerServiceInfoCallback(info, nsdExec, cb) }
+            // On the main thread, which outlives this Link: NsdManager still delivers a last
+            // callback after close(), and a shut-down executor would reject it and crash the app.
+            runCatching { nsd.registerServiceInfoCallback(info, context.mainExecutor, cb) }
         }
         override fun onServiceLost(info: NsdServiceInfo) {
             found.remove(info.serviceName)

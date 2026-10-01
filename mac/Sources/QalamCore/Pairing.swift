@@ -41,7 +41,10 @@ public final class PairingStore {
         phones.first { $0.id == id }.map { SymmetricKey(data: $0.key) }
     }
 
+    /// Stores a new pairing. A phone pairing again under the same name replaces its old pairing,
+    /// whose key that phone no longer has.
     public func add(name: String, key: SymmetricKey) -> UInt32 {
+        phones.removeAll { $0.name == name }
         var id: UInt32
         repeat { id = UInt32.random(in: 1...UInt32.max) } while phones.contains { $0.id == id }
         phones.append(Phone(id: id, name: name, key: key.withUnsafeBytes { Data($0) }, added: Date()))
