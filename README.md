@@ -27,9 +27,9 @@ Wacom-style tablet for macOS:
 
 <div align="center">
 
-![Writing over a code editor in Ink mode](assets/screenshot-ink.png)
+![Ink mode: highlighter and pen strokes, written with the S Pen, over the desktop](assets/screenshot-ink.jpg)
 
-![The phone: pen pad on the left, strip on the right](assets/screenshot-phone.png)
+![The phone: the pad mirrors the ink on the left, the strip on the right](assets/screenshot-phone.png)
 
 </div>
 
