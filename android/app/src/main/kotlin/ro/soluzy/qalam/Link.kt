@@ -66,7 +66,11 @@ class Link(private val context: Context, private val pairing: Pairing?, private 
     @Volatile private var running = false
     private val startedAt = System.nanoTime()
 
-    private val udp = DatagramSocket().apply { soTimeout = 500 }
+    private val udp = DatagramSocket().apply {
+        soTimeout = 500
+        // Room for a whole snapshot burst (~250 datagrams) while the receive thread catches up.
+        runCatching { receiveBufferSize = 1 shl 20 }
+    }
     private val wifiSession = pairing?.let { Session(it.key) }
     @Volatile private var wifiTarget: InetSocketAddress? = null
     @Volatile private var wifiPongAt = 0L
@@ -94,6 +98,9 @@ class Link(private val context: Context, private val pairing: Pairing?, private 
         runCatching { nsd.discoverServices(Wire.SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discovery) }
     }
 
+    /** Gets each snapshot chunk from the Mac, on a receive thread. */
+    @Volatile var onSnapshotChunk: ((Wire.SnapshotChunk) -> Unit)? = null
+
     /** Sends a pen frame payload on the active link. */
     fun sendPen(payload: ByteArray) = sendOnActive(Wire.PEN, payload)
 
@@ -102,6 +109,9 @@ class Link(private val context: Context, private val pairing: Pairing?, private 
 
     /** A strip command (Wire.CMD_*). The Mac applies it and reports the result in its pongs. */
     fun control(cmd: Int, value: Int = 0) = sendOnActive(Wire.CONTROL, Wire.control(cmd, value))
+
+    /** A snapshot request payload (Wire.snapshotRequest); the chunks come to [onSnapshotChunk]. */
+    fun requestSnapshot(payload: ByteArray) = sendOnActive(Wire.SNAPSHOT_REQUEST, payload)
 
     private fun sendOnActive(type: Int, payload: ByteArray) {
         if (!running || pairing == null) return
@@ -180,6 +190,13 @@ class Link(private val context: Context, private val pairing: Pairing?, private 
         return h.type to payload
     }
 
+    private fun onFrame(type: Int, payload: ByteArray, usb: Boolean, from: InetAddress?) {
+        when (type) {
+            Wire.PONG -> onPong(payload, usb, from)
+            Wire.SNAPSHOT_CHUNK -> Wire.parseSnapshotChunk(payload)?.let { onSnapshotChunk?.invoke(it) }
+        }
+    }
+
     private fun onPong(payload: ByteArray, usb: Boolean, from: InetAddress?) {
         val pong = Wire.parsePong(payload) ?: return
         val now = System.nanoTime()
@@ -208,7 +225,7 @@ class Link(private val context: Context, private val pairing: Pairing?, private 
     }
 
     private fun wifiReceiveLoop() {
-        val buf = ByteArray(512)
+        val buf = ByteArray(2048) // a snapshot chunk is 1255 bytes
         val packet = DatagramPacket(buf, buf.size)
         while (running) {
             try {
@@ -218,7 +235,7 @@ class Link(private val context: Context, private val pairing: Pairing?, private 
             }
             val s = wifiSession ?: continue
             val (type, payload) = open(s, buf, packet.length) ?: continue
-            if (type == Wire.PONG) onPong(payload, usb = false, from = packet.address)
+            onFrame(type, payload, usb = false, from = packet.address)
         }
     }
 
@@ -255,13 +272,13 @@ class Link(private val context: Context, private val pairing: Pairing?, private 
                     usbSession = s
                     tcp = sock
                     val input = DataInputStream(sock.getInputStream())
-                    val buf = ByteArray(1024)
+                    val buf = ByteArray(0xFFFF) // any frame the u16 length can describe
                     while (running) {
                         val len = input.readUnsignedByte() or (input.readUnsignedByte() shl 8)
                         if (len > buf.size) break
                         input.readFully(buf, 0, len)
                         val (type, payload) = open(s, buf, len) ?: continue
-                        if (type == Wire.PONG) onPong(payload, usb = true, from = null)
+                        onFrame(type, payload, usb = true, from = null)
                     }
                 }
             } catch (_: Exception) {

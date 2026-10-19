@@ -2,6 +2,7 @@ package ro.soluzy.qalam
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.net.wifi.WifiManager
 import android.os.Bundle
@@ -23,6 +24,7 @@ import android.widget.TextView
 import android.widget.Toast
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 /**
@@ -39,6 +41,7 @@ class MainActivity : Activity() {
     private lateinit var cursorChip: Chip
     private lateinit var inkChip: Chip
     private lateinit var displayChip: Chip
+    private lateinit var snapButton: IconButton
     private lateinit var inkRows: List<View>
     private lateinit var controls: List<View>
     private lateinit var panel: PairingPanel
@@ -63,6 +66,28 @@ class MainActivity : Activity() {
             ui.postDelayed(this, 250)
         }
     }
+
+    // Screen snapshot: one still picture of the pad's area, only when the button is tapped.
+    private val snapshot = SnapshotFetcher(
+        send = { link?.requestSnapshot(it) },
+        onResult = { r -> runOnUiThread { onSnapshot(r) } },
+    )
+    private var snapshotArea: String? = null // the pad area the picture shows (or is loading for)
+    private var snapshotStartedAt = 0L
+    private val decoder = Executors.newSingleThreadExecutor()
+    private val snapshotTick = object : Runnable {
+        override fun run() {
+            snapshot.tick(SystemClock.uptimeMillis())
+            if (snapshot.busy) {
+                snapButton.progress = snapshot.progress
+                ui.postDelayed(this, 50)
+            } else {
+                snapButton.progress = null
+            }
+        }
+    }
+    private val snapshotLater = Runnable { takeSnapshot() }
+    private val hideNote = Runnable { pad.note = null }
 
     private val dp by lazy { resources.displayMetrics.density }
     private fun px(v: Int) = (v * dp).toInt()
@@ -108,6 +133,11 @@ class MainActivity : Activity() {
             onTap { pad.clearInk(); link?.control(Wire.CMD_CLEAR) }
         }
         displayChip = Chip(this, "Display").apply { onTap { link?.nextDisplay() } }
+        snapButton = IconButton(this, Icon.SNAPSHOT).apply {
+            contentDescription = "Mac screen: tap for a picture, hold to remove it"
+            onTap { takeSnapshot() }
+            onLongPress { dropSnapshot() }
+        }
 
         val toolRow = row(tools, 40)
         val colorRow = row(swatches, 30, gap = 2)
@@ -115,7 +145,10 @@ class MainActivity : Activity() {
         inkRows = listOf(toolRow, colorRow, sizeRow)
         val modeRow = row(listOf(cursorChip, inkChip), 36)
         val editRow = row(listOf(undo, clear), 36)
-        val displayRow = row(listOf(displayChip), 34)
+        val displayRow = row(listOf(displayChip, snapButton), 34).apply {
+            // The display name needs the room; the snapshot button is a square-ish tile.
+            (displayChip.layoutParams as LinearLayout.LayoutParams).weight = 3f
+        }
         controls = listOf(modeRow, toolRow, colorRow, sizeRow, editRow, displayRow)
 
         panel = PairingPanel(this).apply {
@@ -189,6 +222,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         ui.removeCallbacks(tick)
+        cancelSnapshot()
         cancelPairing()
         pad.penGone() // releases anything held on the Mac before the link closes
         link?.close()
@@ -204,7 +238,100 @@ class MainActivity : Activity() {
     }
 
     private fun startLink() {
-        link = Link(this, pairing, prefs.getString(PREF_HOST, null)).also { it.start() }
+        link = Link(this, pairing, prefs.getString(PREF_HOST, null)).also {
+            it.onSnapshotChunk = { c -> snapshot.onChunk(c, SystemClock.uptimeMillis()) }
+            it.start()
+        }
+    }
+
+    override fun onDestroy() {
+        decoder.shutdownNow()
+        super.onDestroy()
+    }
+
+    // MARK: Screen snapshot
+
+    /** Asks the Mac for one fresh picture of the pad's area; tapping again refreshes it. */
+    private fun takeSnapshot() {
+        ui.removeCallbacks(snapshotLater)
+        val s = link?.status()
+        val alive = s?.active != null && (s.wifiRttMs != null || s.usbRttMs != null)
+        if (pairing == null || s == null || !alive || s.displayW == 0) {
+            showNote("Not connected to the Mac", error = true)
+            return
+        }
+        if (snapshot.busy) return // one picture at a time
+        // The Mac takes a new picture at most every 0.5 s; a quick second tap just waits for it.
+        val wait = snapshotStartedAt + 600 - SystemClock.uptimeMillis()
+        if (wait > 0) {
+            ui.postDelayed(snapshotLater, wait)
+            return
+        }
+        snapshotStartedAt = SystemClock.uptimeMillis()
+        snapshotArea = areaKey(s)
+        snapshot.start(pad.padWidthPx, pad.padHeightPx, snapshotStartedAt)
+        showNote("Getting the Mac screen…", error = false, forMs = 0)
+        snapButton.progress = 0f
+        ui.removeCallbacks(snapshotTick)
+        ui.postDelayed(snapshotTick, 50)
+    }
+
+    /** Stops a picture that's still loading; the one showing stays. */
+    private fun cancelSnapshot() {
+        ui.removeCallbacks(snapshotLater)
+        ui.removeCallbacks(snapshotTick)
+        snapshot.cancel()
+        snapButton.progress = null
+        if (!pad.noteIsError) pad.note = null
+    }
+
+    /** Back to the blank pad (long-press, or the pad's area changed). */
+    private fun dropSnapshot() {
+        cancelSnapshot()
+        snapshotArea = null
+        pad.backdrop = null
+        pad.note = null
+        snapButton.isSelected = false
+    }
+
+    private fun onSnapshot(r: SnapshotFetcher.Result) {
+        snapButton.progress = null
+        if (snapshotArea == null) return // removed (long-press) while it was arriving
+        when (r) {
+            is SnapshotFetcher.Failed -> {
+                val s = link?.status()
+                val down = s?.wifiRttMs == null && s?.usbRttMs == null
+                showNote(if (r.noAnswer && down) "Lost the connection to the Mac" else r.message, error = true)
+            }
+            is SnapshotFetcher.Done -> {
+                val area = snapshotArea
+                decoder.execute {
+                    // Decoding a 2-megapixel JPEG takes a few tens of ms: not on the UI thread.
+                    val bmp = BitmapFactory.decodeByteArray(r.jpeg, 0, r.jpeg.size)
+                    runOnUiThread {
+                        if (area == null || area != snapshotArea) return@runOnUiThread // dropped meanwhile
+                        if (bmp == null) {
+                            showNote(SnapshotFetcher.LOST, error = true)
+                        } else {
+                            pad.backdrop = bmp
+                            pad.note = null
+                            snapButton.isSelected = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Which area the pad maps to; a picture of another area doesn't match the pad any more. */
+    private fun areaKey(s: Link.Status) = "${s.displayIndex}/${s.displayCount}/${s.displayW}x${s.displayH}"
+
+    /** A short line on the pad; errors go away by themselves after a while ([forMs] 0 = stays). */
+    private fun showNote(text: String, error: Boolean, forMs: Long = 6000) {
+        ui.removeCallbacks(hideNote)
+        pad.noteIsError = error
+        pad.note = text
+        if (forMs > 0) ui.postDelayed(hideNote, forMs)
     }
 
     private fun restartLink() {
@@ -291,6 +418,8 @@ class MainActivity : Activity() {
             return
         }
         pad.setDisplay(s.displayIndex, s.displayW, s.displayH)
+        // The pad now maps to another area (display switched, resized, plugged in or out).
+        if (snapshotArea != null && s.displayW > 0 && areaKey(s) != snapshotArea) dropSnapshot()
         if (s.state != null && SystemClock.uptimeMillis() - localChangeAt > 800 && s.state != state) {
             state = s.state
             render()

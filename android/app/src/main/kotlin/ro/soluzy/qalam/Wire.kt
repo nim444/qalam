@@ -25,6 +25,8 @@ object Wire {
     const val PAIR_COMMIT = 7
     const val PAIR_NONCE = 8
     const val PAIR_REVEAL = 9
+    const val SNAPSHOT_REQUEST = 10
+    const val SNAPSHOT_CHUNK = 11
 
     // Control commands (frame type 5)
     const val CMD_MODE = 1
@@ -81,6 +83,43 @@ object Wire {
         val displayName: String,
         val state: PadState?,
     )
+
+    /**
+     * Asks the Mac for one still picture of the pad's area, fitting [maxW] × [maxH] pixels.
+     * [missing] empty = the whole picture; otherwise only those chunks of picture [request] again.
+     */
+    fun snapshotRequest(request: Int, maxW: Int, maxH: Int, missing: List<Int> = emptyList()): ByteArray =
+        ByteArray(8 + 2 * missing.size).also { a ->
+            val b = le(a).putShort(request.toShort()).putShort(maxW.coerceIn(1, 65535).toShort())
+                .putShort(maxH.coerceIn(1, 65535).toShort()).putShort(missing.size.toShort())
+            missing.forEach { b.putShort(it.toShort()) }
+        }
+
+    /** One piece of a snapshot JPEG. With [status] other than 0 it is the whole (error) answer. */
+    class SnapshotChunk(
+        val request: Int,
+        val status: Int, // 0 ok, 1 no permission, 2 capture failed, 3 too soon, 4 unavailable, 5 gone
+        val width: Int,
+        val height: Int,
+        val total: Int,
+        val index: Int,
+        val count: Int,
+        val data: ByteArray,
+    )
+
+    fun parseSnapshotChunk(p: ByteArray): SnapshotChunk? {
+        if (p.size < 15) return null
+        val b = le(p)
+        fun u16() = b.short.toInt() and 0xFFFF
+        val request = u16()
+        val status = b.get().toInt() and 0xFF
+        val w = u16()
+        val h = u16()
+        val total = b.int
+        val index = u16()
+        val count = u16()
+        return SnapshotChunk(request, status, w, h, total, index, count, p.copyOfRange(15, p.size))
+    }
 
     /** A decrypted pong payload. */
     fun parsePong(p: ByteArray): Pong? {

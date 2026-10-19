@@ -25,7 +25,7 @@ object Palette {
 /** Ink tools, numbered as on the wire. */
 enum class Tool(val icon: Icon) { PEN(Icon.PEN), HIGHLIGHTER(Icon.HIGHLIGHTER), LASER(Icon.LASER), ERASER(Icon.ERASER) }
 
-enum class Icon { PEN, HIGHLIGHTER, LASER, ERASER, UNDO, CLEAR }
+enum class Icon { PEN, HIGHLIGHTER, LASER, ERASER, UNDO, CLEAR, SNAPSHOT }
 
 /** Base for the strip's buttons: a rounded tile that lights up in the accent colour when selected (`isSelected`). */
 abstract class StripButton(context: Context) : View(context) {
@@ -41,6 +41,12 @@ abstract class StripButton(context: Context) : View(context) {
     fun onTap(action: () -> Unit) = setOnClickListener {
         it.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
         action()
+    }
+
+    fun onLongPress(action: () -> Unit) = setOnLongClickListener {
+        it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        action()
+        true
     }
 
     protected fun drawTile(canvas: Canvas) {
@@ -81,9 +87,26 @@ class IconButton(context: Context, private val icon: Icon) : StripButton(context
         strokeJoin = Paint.Join.ROUND
     }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val ring = RectF()
+
+    /** Something is loading: a thin arc around the tile, 0…1 of the way; null = none. */
+    var progress: Float? = null
+        set(value) {
+            if (value != field) {
+                field = value
+                invalidate()
+            }
+        }
 
     override fun onDraw(canvas: Canvas) {
         drawTile(canvas)
+        progress?.let { p ->
+            stroke.color = if (isSelected) ink else Palette.ACCENT // the selected tile is accent already
+            stroke.strokeWidth = 2 * dp
+            ring.set(4 * dp, 4 * dp, width - 4 * dp, height - 4 * dp)
+            // A short arc even at 0, so a tap shows at once that something is on its way.
+            canvas.drawArc(ring, -90f, 360f * p.coerceIn(0.08f, 1f), false, stroke)
+        }
         val size = minOf(width, height) * 0.62f
         stroke.color = ink
         fill.color = ink
@@ -158,6 +181,19 @@ private object Icons {
                 p.cubicTo(17.5f, 9f, 20f, 11.5f, 20f, 14.5f)
                 p.cubicTo(20f, 17.5f, 17.5f, 20f, 14f, 20f); p.lineTo(10f, 20f)
                 c.drawPath(p, s)
+            }
+            Icon.SNAPSHOT -> {
+                // A screen on its stand, with a picture in it.
+                p.moveTo(5f, 4.5f); p.lineTo(19f, 4.5f)
+                p.quadTo(21f, 4.5f, 21f, 6.5f); p.lineTo(21f, 14.5f)
+                p.quadTo(21f, 16.5f, 19f, 16.5f); p.lineTo(5f, 16.5f)
+                p.quadTo(3f, 16.5f, 3f, 14.5f); p.lineTo(3f, 6.5f)
+                p.quadTo(3f, 4.5f, 5f, 4.5f); p.close()
+                p.moveTo(12f, 16.5f); p.lineTo(12f, 20f)
+                p.moveTo(8f, 20f); p.lineTo(16f, 20f)
+                p.moveTo(6f, 14f); p.lineTo(10f, 9.5f); p.lineTo(13f, 12.5f); p.lineTo(15f, 10.5f); p.lineTo(18f, 14f)
+                c.drawPath(p, s)
+                c.drawCircle(16f, 7.8f, 1.2f, f)
             }
             Icon.CLEAR -> {
                 p.moveTo(5f, 7f); p.lineTo(19f, 7f)

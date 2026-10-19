@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
@@ -69,6 +70,32 @@ class PadView(context: Context) : View(context) {
                 invalidate()
             }
         }
+    /**
+     * A still picture of the Mac screen under the pad (the snapshot button), drawn under
+     * everything else; null = the blank pad.
+     */
+    var backdrop: Bitmap? = null
+        set(value) {
+            if (value !== field) {
+                field = value
+                invalidate()
+            }
+        }
+
+    /** A short line at the pad's bottom edge (snapshot loading or failing); null = none. */
+    var note: String? = null
+        set(value) {
+            if (value != field) {
+                field = value
+                invalidate()
+            }
+        }
+    var noteIsError = false
+
+    /** The pad's size in pixels: the most a snapshot needs. */
+    val padWidthPx: Int get() = pad.width().toInt()
+    val padHeightPx: Int get() = pad.height().toInt()
+
     var inkTool = LocalInk.PEN
     var inkColor = 0
     var inkSize = 1
@@ -139,6 +166,12 @@ class PadView(context: Context) : View(context) {
     private val caption = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF6E6E76.toInt(); textSize = 12 * density }
     private val inkRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.5f * density }
     private val dimInk = Paint().apply { alpha = 90 } // Cursor mode: the ink is still on the Mac, shown faintly
+    // Slightly dimmed, so the ink and the hover ring stand out on a bright screen.
+    private val backdropPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply { alpha = 215 }
+    private val padPath = Path()
+    private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC0B0B0D.toInt() }
+    private val pillBox = RectF()
+    private val noteText = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 12 * density }
 
     // Android sends HOVER_EXIT just before the tip touches down. Only call the pen "gone" if no
     // touch follows shortly, otherwise every tap would flash an out-of-range on the Mac.
@@ -167,6 +200,8 @@ class PadView(context: Context) : View(context) {
         val left = (width - w) / 2
         val top = (height - h) / 2
         pad.set(left, top, left + w, top + h)
+        padPath.reset()
+        padPath.addRoundRect(pad, 14 * density, 14 * density, Path.Direction.CW)
     }
 
     override fun onHoverEvent(e: MotionEvent): Boolean {
@@ -309,6 +344,12 @@ class PadView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val r = 14 * density
         canvas.drawRoundRect(pad, r, r, padFill)
+        backdrop?.let {
+            canvas.save()
+            canvas.clipPath(padPath)
+            canvas.drawBitmap(it, null, pad, backdropPaint)
+            canvas.restore()
+        }
 
         // The ink: finished strokes from a cached bitmap, the stroke being written and the laser live.
         val scale = pad.width() / displayW // px per Mac point
@@ -322,7 +363,15 @@ class PadView(context: Context) : View(context) {
         padEdge.color = edgeColor ?: 0xFF2C2C33.toInt()
         padEdge.strokeWidth = (if (edgeColor != null) 2f else 1f) * density
         canvas.drawRoundRect(pad, r, r, padEdge)
+        if (backdrop != null) textPill(canvas, pad.left + 14 * density, pad.top + 22 * density, caption.measureText(label), caption)
         canvas.drawText(label, pad.left + 14 * density, pad.top + 22 * density, caption)
+        note?.let {
+            noteText.color = if (noteIsError) 0xFFE0A030.toInt() else Palette.MUTED
+            val x = pad.left + 14 * density
+            val y = pad.bottom - 14 * density
+            textPill(canvas, x, y, noteText.measureText(it), noteText)
+            canvas.drawText(it, x, y, noteText)
+        }
         if (lastX < 0) return
         when {
             touching && !inkMode -> canvas.drawCircle(lastX, lastY, 5 * density, touchDot)
@@ -336,6 +385,13 @@ class PadView(context: Context) : View(context) {
             }
             else -> canvas.drawCircle(lastX, lastY, 9 * density, hoverDot)
         }
+    }
+
+    /** A dark rounded box behind text at baseline ([x], [y]), so it reads on a picture too. */
+    private fun textPill(canvas: Canvas, x: Float, y: Float, textWidth: Float, paint: Paint) {
+        val m = 6 * density
+        pillBox.set(x - m, y + paint.ascent() - m / 2, x + textWidth + m, y + paint.descent() + m / 2)
+        canvas.drawRoundRect(pillBox, 8 * density, 8 * density, pill)
     }
 
     /** The finished strokes of the current display, re-rendered only when they change. */
