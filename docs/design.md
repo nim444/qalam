@@ -24,7 +24,8 @@ flowchart LR
 ```
 
 The phone sends **only pen data**, never video. You look at the Mac screen; hovering shows where
-the pen is.
+the pen is. When you want to see the screen on the pad, the strip's screen button fetches **one
+still picture** (see [Screen snapshot](#screen-snapshot-on-demand-not-a-stream)).
 
 ## Modes
 
@@ -109,6 +110,36 @@ monitor in or out works mid-session; if the current display disappears, the main
 over. Later (M1 menu bar): a Mac hotkey to switch, and a small map of the display arrangement
 on the phone.
 
+## Screen snapshot: on demand, not a stream
+
+Built 20 Oct 2026. A blank pad makes it hard to aim, so the strip has a screen button: a tap asks
+the Mac for one picture of the area the pad maps to, and the pad shows it under the ink and the
+hover ring (both modes). Tap again to refresh, hold to remove it; it's dropped by itself when the
+pad's area changes.
+
+Why a still picture and not mirroring:
+- **Latency:** the pen's few milliseconds matter most. A video encoder on the Mac and a decoder
+  on the phone add 25–60 ms and share the link with the pen frames; a still picture moves only
+  when you ask, and the pen frames never wait behind it.
+- **Battery and heat:** nothing is captured, encoded or sent between taps.
+- **Privacy:** the screen only leaves the Mac on a tap, to the paired phone, encrypted.
+- **Enough to aim:** what's under the pen rarely moves while you write; a refresh is one tap.
+
+How:
+- The Mac captures with ScreenCaptureKit (`SCScreenshotManager`), scaled on the GPU to the pad's
+  size in pixels (never up, at most ~2 megapixels). For "all displays" it captures each one and
+  composites them into the union. Qalam's own windows are left out (the overlay's ink would
+  show twice, since the phone draws its own copy) and so is the pointer.
+- JPEG via ImageIO at quality ~0.65, lower or smaller until it's under ~300 KB.
+- 1200-byte chunks (one datagram each), sent a few per millisecond so the phone's socket
+  buffer keeps up; each sealed as it goes, so the replay window sees rising counters.
+- The phone asks again for only the missing chunks after a 250 ms quiet gap, a few rounds at
+  most. The Mac keeps the last picture per phone for that, and takes a new one at most every
+  0.5 s.
+- It needs the Screen Recording permission, which an ad-hoc signed build loses on every rebuild
+  (like Accessibility).
+- Bytes: [protocol.md](protocol.md), types 10–11.
+
 ## Transport: Wi-Fi first, USB as the fallback
 
 Decided on 1 Oct 2026. The phone pings both links every 250 ms and sends pen data on **Wi-Fi**
@@ -151,7 +182,8 @@ Exact byte layout: [protocol.md](protocol.md).
 
 **Not planned (decided 1 Oct 2026):** a tablet mode with pressure/tilt events for drawing apps
 (was M4), a precision region for big monitors, shapes and arrows, a map of the displays on the
-phone, and an optional Mac preview on the phone.
+phone, and a live Mac preview (video) on the phone. A still picture on demand was built instead
+(20 Oct 2026, see above).
 
 ## Risks and things to watch
 

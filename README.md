@@ -51,6 +51,9 @@ Wacom-style tablet for macOS:
   full-screen apps. Your real mouse keeps working underneath, and recorders capture the ink.
 - **Several monitors**: one screen at a time, or all of them as one surface. Switch from the
   phone, from the menu or with ⌃⌥D, or let the pen follow your mouse to another screen.
+- **A picture of the Mac screen on the pad, when you ask**: tap the screen button on the strip
+  and the pad shows a still picture of the area it maps to, so you can aim. Tap again to
+  refresh, hold to remove it. It's one picture per tap, not a video stream.
 - **Wi-Fi first, USB as the fallback**: the phone finds the Mac by itself (Bonjour). If Wi-Fi
   drops, it switches to the USB cable (`adb reverse`) within a second, and back again later.
 - **Paired and encrypted**: pair once by comparing a 6-digit code on both screens (no camera,
@@ -156,8 +159,12 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
   In the menu choose **Allow Accessibility…**, then turn Qalam on under System Settings →
   Privacy & Security → Accessibility.
 - **Ink mode** needs no permission.
-- **After every rebuild** you have to grant Accessibility again. The app is ad-hoc signed and
-  macOS ties the grant to the signature.
+- **The screen picture on the pad** needs Screen Recording. The first tap on the phone's
+  screen button makes macOS ask; or choose **Allow Screen Recording…** in the menu and turn
+  Qalam on under System Settings → Privacy & Security → Screen & System Audio Recording. macOS
+  may ask you to quit and reopen Qalam.
+- **After every rebuild** you have to grant Accessibility (and Screen Recording) again. The
+  app is ad-hoc signed and macOS ties the grant to the signature.
 - If the macOS firewall asks, allow incoming connections.
 
 </details>
@@ -181,6 +188,13 @@ menu has **Paired phones** to forget phones there.
 | S · M · L | stroke size. Pen strokes also follow pressure |
 | Undo · Clear | undo the last stroke, erase or clear; clear wipes all the ink |
 | Display | cycles the target screen: each one, then all displays |
+| Screen button | tap: a still picture of the Mac screen under the pad (tap again to refresh); hold: remove it |
+
+The screen picture sits under the ink and the hover ring, in both modes. It goes away by
+itself when you switch to another display, since it no longer matches the pad. Qalam's own ink
+overlay is left out of the picture, because the pad already draws the ink. If something is
+missing, a short line on the pad says why (for example "Allow Screen Recording for Qalam on
+the Mac").
 
 **With the pen:**
 - **Cursor mode:** hover moves the cursor, the tip clicks or drags, the side button (while
@@ -200,8 +214,8 @@ menu has **Paired phones** to forget phones there.
 | ⌃⌥D | next display |
 
 The menu-bar menu has the same controls, plus **Fade ink away** (after 3, 5 or 10 s), **Follow
-the mouse**, **Smooth the pen**, **Open at login**, and the state of Accessibility and the USB
-fallback.
+the mouse**, **Smooth the pen**, **Open at login**, and the state of Accessibility, Screen
+Recording and the USB fallback.
 
 > **Samsung's Air command** opens when you press the S Pen button while hovering. If it gets in
 > the way of right-click or the eraser, turn it off in Settings → Advanced features → S Pen.
@@ -243,7 +257,8 @@ fallback.
 
 Why no screen mirroring? Encoding video is what makes the other tablet apps slow (25–60 ms) and
 hot. You look at the Mac, as with a screenless Wacom, and the hover ring or the cursor shows
-where the pen is.
+where the pen is. When you want to see what's under the pen, the screen button fetches one
+still JPEG (about 100–300 KB, sent in under a second) and nothing more until you tap again.
 
 </details>
 
@@ -261,12 +276,13 @@ where the pen is.
 │       ├── PairingStore.kt         # the pairing key, wrapped by the Android Keystore
 │       ├── PairingPanel.kt         # the pairing screen
 │       ├── Link.kt                 # Wi-Fi (UDP + Bonjour) and USB (TCP) links, failover
+│       ├── Snapshot.kt             # fetching the screen picture: chunks, resends
 │       ├── StripViews.kt           # strip buttons, icons, palette
 │       └── Wire.kt                 # wire format
 ├── mac/                            # Swift package
 │   └── Sources/
-│       ├── QalamCore/              # wire format, encryption (Secure), pairing, receiver, displays, cursor, adb
-│       ├── Qalam/                  # the menu-bar app: controller, ink overlay, menu, hotkeys, pairing window
+│       ├── QalamCore/              # wire format, encryption (Secure), pairing, receiver, displays, cursor, adb, snapshot
+│       ├── Qalam/                  # the menu-bar app: controller, ink overlay, menu, hotkeys, pairing window, screen capture
 │       └── qalam-m0/               # command-line receiver with a latency/jitter log
 ├── scripts/
 │   ├── doctor.sh                   # checks the tools and the phone, says how to fix gaps
@@ -296,8 +312,9 @@ cd mac && swift build -c release && .build/release/qalam-m0 --help
   <summary>6. Security and Privacy</summary>
 
 - **Qalam keeps everything on your network.** There are no servers, no accounts and no
-  analytics. Only pen samples and strip commands travel, and they go directly between the
-  phone and the Mac.
+  analytics. Pen samples and strip commands travel directly between the phone and the Mac,
+  and a picture of the Mac screen only when you tap the screen button (encrypted like
+  everything else).
 - **Pairing** works like Bluetooth's "confirm the code" (numeric comparison):
   - the two apps exchange X25519 keys
   - the Mac commits to its random value before it sees the phone's, so a device in the middle

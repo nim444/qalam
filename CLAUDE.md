@@ -40,6 +40,11 @@ ask before anything that installs software or replaces an app.
    - The app is ad-hoc signed, so **macOS forgets this grant after every rebuild**. If Cursor
      mode stops moving the cursor after a rebuild, remove Qalam from the list and add it again.
    - Ink mode needs no permission.
+   - **Screen Recording** is needed only for the screen picture on the phone's pad (the
+     strip's screen button). The first tap makes macOS ask; or choose **Allow Screen
+     Recording…** in the Qalam menu and switch Qalam on in System Settings → Privacy &
+     Security → Screen & System Audio Recording. macOS may ask to quit and reopen Qalam.
+     Like Accessibility, the grant is lost after every rebuild (ad-hoc signature).
    - If macOS asks about local network access or incoming connections, the answer is
      **Allow**.
 5. **Pair (the user does this):**
@@ -51,6 +56,8 @@ ask before anything that installs software or replaces an app.
    - The strip on the right of the phone switches **Cursor / Ink**, the tool (pen,
      highlighter, laser, eraser), colour and size, has undo and clear, and **Display** picks
      the screen.
+   - The **screen button** next to Display: tap for a still picture of the Mac screen under
+     the pad (tap again to refresh), hold to remove it. It's one picture per tap, not video.
    - Holding the side button while writing erases.
    - Mac hotkeys: ⌃⌥I toggles ink, ⌃⌥Z undo, ⌃⌥C clear, ⌃⌥L laser, ⌃⌥D next display.
 
@@ -62,6 +69,8 @@ ask before anything that installs software or replaces an app.
 | "The Mac didn't answer" while pairing | The Mac's **Pair a phone…** window must be open while pairing. If the macOS firewall is on, Qalam must be allowed |
 | Pairing worked once, now nothing connects | The phone app was reinstalled or its data cleared, so pair again (the Mac replaces the old entry with the same phone name). The Mac's menu shows "⚠ An unpaired phone is trying to connect" in this case |
 | The cursor doesn't move in Cursor mode | Accessibility (step 4); after a rebuild, remove Qalam from the list and add it again |
+| The pad says "Allow Screen Recording for Qalam on the Mac" | Screen Recording (step 4); after a rebuild, remove Qalam from the list, add it again and reopen Qalam |
+| The pad says "No answer from the Mac. Update Qalam on the Mac?" | The Mac app is older than the phone app (it ignores snapshot requests), or `qalam-m0` is running: build and install both apps from the same checkout |
 | The S Pen button opens Samsung's Air command | Turn Air command off: Settings → Advanced features → S Pen |
 | The USB fallback isn't used | USB debugging on and allowed; the Mac's menu should say "USB fallback: ready"; `adb reverse --list` should show `tcp:47474` |
 | "Qalam can't listen on port 47474" | Another Qalam or `qalam-m0` is running; quit it first |
@@ -75,12 +84,16 @@ android/app/src/main/kotlin/ro/soluzy/qalam/
   PadView.kt        S Pen input → pen payloads; draws the pad and the local copy of the ink
   LocalInk.kt       the phone's copy of the ink (same rules as mac/Sources/Qalam/Ink.swift)
   Link.kt           Wi-Fi (UDP, Bonjour by Mac id) + USB (TCP via adb reverse), sealing, failover
+  Snapshot.kt       the screen picture: chunk reassembly and missing-chunk resends (no Android deps)
   Pairer.kt, PairingStore.kt, PairingPanel.kt   pairing (phone side), key wrapped by the Keystore
   Crypto.kt, Wire.kt                            X25519 / HKDF / AES-GCM, the wire format
 android/app/src/test/.../CryptoTest.kt          JVM tests against vectors made from the spec
+android/app/src/test/.../SnapshotTest.kt        JVM tests of the snapshot payloads, reassembly, resends
 mac/Sources/QalamCore/   Wire, Secure (Gate: open/seal/replay), Pairing (store + responder),
-                         Receiver, Displays, Injector (CGEvent cursor), Stats, Adb
-mac/Sources/Qalam/       the menu-bar app: Controller, Ink (overlay), StatusMenu, PairingWindow, Hotkeys
+                         Receiver, Displays, Injector (CGEvent cursor), Stats, Adb,
+                         Snapshot (chunks, JPEG, the per-phone server with pacing and resends)
+mac/Sources/Qalam/       the menu-bar app: Controller, Ink (overlay), StatusMenu, PairingWindow, Hotkeys,
+                         ScreenGrab (ScreenCaptureKit capture without Qalam's own windows)
 mac/Sources/qalam-m0/    command-line receiver that logs link quality (uses the same pairings)
 docs/                    research.md, design.md, protocol.md (the wire format: the contract)
 scripts/                 doctor.sh, run.sh, build-mac-app.sh, make-icon.swift
@@ -91,7 +104,16 @@ scripts/                 doctor.sh, run.sh, build-mac-app.sh, make-icon.swift
 ```bash
 cd mac && swift build -c release                                # library, app, qalam-m0
 scripts/build-mac-app.sh                                        # mac/build/Qalam.app
-cd android && ./gradlew assembleDebug :app:testDebugUnitTest    # APK + crypto tests
+cd android && ./gradlew assembleDebug :app:testDebugUnitTest    # APK + crypto and snapshot tests
+```
+
+The protocol test (`tests/spec_phone.py`, also run in CI) pairs a Python phone written from
+the spec with a test instance of the app:
+
+```bash
+export QALAM_PORT=47480 QALAM_TEST_SNAPSHOT=/tmp/qalam-snapshot.png   # the test writes this image
+QALAM_TEST_AUTOPAIR=1 mac/build/Qalam.app/Contents/MacOS/Qalam & APP=$!
+python3 tests/spec_phone.py; kill "$APP"                             # needs: pip install cryptography
 ```
 
 **Rules:**
@@ -104,14 +126,17 @@ cd android && ./gradlew assembleDebug :app:testDebugUnitTest    # APK + crypto t
     phone written from the spec.
 - **No dependencies.**
   - The Android app uses the platform SDK only, with JUnit for tests.
-  - The Mac app uses Apple frameworks only (AppKit, Network, CryptoKit) and Swift 5 language
-    mode.
+  - The Mac app uses Apple frameworks only (AppKit, Network, CryptoKit, ScreenCaptureKit,
+    ImageIO) and Swift 5 language mode.
   - Ask before adding any dependency.
 - **Testing next to a running Qalam:**
   - Use a second instance: `QALAM_PORT=47480 mac/.build/release/Qalam`. It gets its own port,
     a temporary pairing file, and no Bonjour, so phones never find it.
   - `QALAM_TEST_AUTOPAIR=1` makes that test instance accept the first pairing code by itself.
     It works only together with `QALAM_PORT`.
+  - `QALAM_TEST_SNAPSHOT=<image file>` makes that test instance answer snapshot requests with
+    the image instead of capturing the screen (only together with `QALAM_PORT`). Always set it
+    when a test sends snapshot requests, so nothing records the real display.
 - **Be careful on the user's machine:**
   - Never stop the user's Qalam by name (`pkill`). Stop only processes you started, by PID.
   - Never screen-capture the user's display. Ask them for screenshots or recordings.
