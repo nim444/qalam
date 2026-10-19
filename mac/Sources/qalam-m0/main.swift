@@ -130,7 +130,7 @@ if gate.store.phones.isEmpty {
     print("⚠ No phone paired yet: pair it once in the Qalam app (menu → Pair a phone…), then run this again.")
 }
 let receiver = Receiver(queue: queue) { bytes, link, send in gate.handle(bytes, link: link, send: send) }
-gate.onFrame = { frame, counter, link, reply in
+gate.onFrame = { frame, counter, link, _, reply in
     let now = DispatchTime.now().uptimeNanoseconds
     let s = stats[link]!
     if s.lastSeen == 0 || goneReported.contains(link) {
@@ -149,6 +149,8 @@ gate.onFrame = { frame, counter, link, reply in
         print("\(timestamp()) display → \(target.name) (\(Int(target.bounds.width))×\(Int(target.bounds.height)) pt)")
     case .control(let command):
         print("\(timestamp()) \(command) ignored: ink lives in the Qalam app")
+    case .snapshot(let request):
+        SnapshotServer.refuse(request, reply: reply) // screen pictures come from the Qalam app
     case .pen(let samples):
         s.pen(samples: samples.count, now: now)
         if penLink != link {

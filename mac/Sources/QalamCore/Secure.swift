@@ -63,6 +63,12 @@ public struct ReplayWindow {
     }
 }
 
+/// Which paired phone a frame came from, and on which of its sessions.
+public struct Peer: Hashable {
+    public let pairing: UInt32
+    public let session: UInt64
+}
+
 /// Between the network and the app: opens frames from paired phones, hands pairing messages to
 /// the pairing responder (only while pairing is open), and seals the replies.
 public final class Gate {
@@ -73,8 +79,9 @@ public final class Gate {
     public let store: PairingStore
     /// Set while the Mac's "Pair a phone…" window is open; nil = pairing messages are ignored.
     public var pairing: PairingResponder?
-    /// Gets each decrypted frame with its counter (for loss stats).
-    public var onFrame: ((Frame, UInt64, Link, @escaping Reply) -> Void)?
+    /// Gets each decrypted frame with its counter (for loss stats) and the phone and session it
+    /// came from.
+    public var onFrame: ((Frame, UInt64, Link, Peer, @escaping Reply) -> Void)?
     /// When something unpaired (an old v0 app, or an unknown pairing) last knocked.
     public private(set) var lastRejected: Date?
 
@@ -126,7 +133,7 @@ public final class Gate {
             channels[id] = ch
         }
         ch.lastUsed = Date()
-        onFrame?(frame, h.counter, link) { type, reply in
+        onFrame?(frame, h.counter, link, Peer(pairing: h.pairing, session: h.session)) { type, reply in
             ch.sent += 1
             send(seal(Header(type: type.rawValue, pairing: h.pairing, session: h.session, counter: ch.sent), reply, key: ch.tx))
         }

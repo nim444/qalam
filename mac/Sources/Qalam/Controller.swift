@@ -29,10 +29,15 @@ final class Controller {
     private var inkTouching = false
     private var lastPenActive: TimeInterval = 0
     private var timer: Timer?
+    private lazy var snapshots = SnapshotServer { [weak self] fitting, done in self?.capture(fitting, done) }
+
+    /// Automated tests only: a QALAM_PORT test instance answers snapshot requests with this image
+    /// instead of capturing the screen, so tests never record the real display.
+    private static let testSnapshot = Wire.testPort == nil ? nil : ProcessInfo.processInfo.environment["QALAM_TEST_SNAPSHOT"]
 
     func start() throws {
         let r = Receiver(queue: .main) { [weak self] bytes, link, send in self?.gate.handle(bytes, link: link, send: send) }
-        gate.onFrame = { [weak self] frame, counter, link, reply in self?.handle(frame, counter, link, reply) }
+        gate.onFrame = { [weak self] frame, counter, link, peer, reply in self?.handle(frame, counter, link, peer, reply) }
         try r.start(serviceName: macName, macId: gate.store.macIdHex)
         receiver = r
         adb.verbose = false
@@ -152,7 +157,7 @@ final class Controller {
 
     // MARK: Frames
 
-    private func handle(_ frame: Frame, _ counter: UInt64, _ link: Link, _ reply: @escaping Gate.Reply) {
+    private func handle(_ frame: Frame, _ counter: UInt64, _ link: Link, _ peer: Peer, _ reply: @escaping Gate.Reply) {
         let s = stats[link]!
         s.seen(counter: counter, now: DispatchTime.now().uptimeNanoseconds)
         if !connected {
@@ -167,6 +172,8 @@ final class Controller {
             nextDisplay()
         case .control(let c):
             apply(c)
+        case .snapshot(let request):
+            snapshots.handle(request, from: peer, reply: reply)
         case .pen(let samples):
             if penLink != link {
                 penLink = link
@@ -174,6 +181,17 @@ final class Controller {
             }
             for sample in samples { route(sample) }
         }
+    }
+
+    /// The pad's area right now: one display, or all of them (the phone's snapshot).
+    private func capture(_ fitting: CGSize, _ done: @escaping (CGImage?, SnapshotStatus) -> Void) {
+        if let path = Self.testSnapshot {
+            let image = Snapshot.load(path, fitting: fitting)
+            return done(image, image == nil ? .captureFailed : .ok)
+        }
+        let all = target.index >= target.count
+        ScreenGrab.capture(displays: all ? target.ids : [target.ids[target.index]], area: target.bounds,
+                           fitting: fitting, done: done)
     }
 
     private func route(_ s: PenSample) {

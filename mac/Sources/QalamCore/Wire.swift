@@ -17,8 +17,10 @@ public enum Wire {
 public enum FrameType: UInt8 {
     case pen = 1, ping = 2, pong = 3, display = 4, control = 5
     case pairHello = 6, pairCommit = 7, pairNonce = 8, pairReveal = 9
+    case snapshotRequest = 10, snapshotChunk = 11
 
-    public var isPairing: Bool { rawValue >= 6 }
+    /// Pairing messages travel in the clear; everything else is sealed.
+    public var isPairing: Bool { (6...9).contains(rawValue) }
 }
 
 /// The 24-byte frame header: in the clear, but authenticated (it's the AEAD's associated data).
@@ -104,6 +106,7 @@ public enum Frame {
     case ping(tNs: Int64, lastRttUs: UInt32)
     case nextDisplay
     case control(Control)
+    case snapshot(SnapshotRequest)
 
     public static func parse(type: UInt8, payload: [UInt8]) -> Frame? {
         var r = LE(payload, at: 0)
@@ -142,6 +145,11 @@ public enum Frame {
             case 6: return .control(.clear)
             default: return nil
             }
+        case .snapshotRequest:
+            guard r.remaining >= 8 else { return nil }
+            let id = r.u16(), w = r.u16(), h = r.u16(), n = Int(r.u16())
+            guard r.remaining >= 2 * n else { return nil }
+            return .snapshot(SnapshotRequest(request: id, maxW: w, maxH: h, missing: (0..<n).map { _ in r.u16() }))
         default:
             return nil
         }

@@ -27,14 +27,16 @@ jobs:
         run: scripts/build-mac-app.sh
 
       # A phone written from docs/protocol.md pairs with the real app (a test instance on its
-      # own port, accepting the code by itself), then checks encryption and replay protection.
+      # own port, accepting the code by itself), then checks encryption and replay protection,
+      # and the screen snapshot: the test writes an image that the app sends instead of the screen.
       - name: Protocol test
         run: |
           python3 -m venv .venv
           .venv/bin/pip install --quiet cryptography
-          QALAM_PORT=47480 QALAM_TEST_AUTOPAIR=1 mac/build/Qalam.app/Contents/MacOS/Qalam &
+          export QALAM_PORT=47480 QALAM_TEST_SNAPSHOT="$RUNNER_TEMP/qalam-snapshot.png"
+          QALAM_TEST_AUTOPAIR=1 mac/build/Qalam.app/Contents/MacOS/Qalam &
           APP=$!
-          QALAM_PORT=47480 .venv/bin/python tests/spec_phone.py; STATUS=$?
+          .venv/bin/python tests/spec_phone.py; STATUS=$?
           kill "$APP" || true
           exit "$STATUS"
 

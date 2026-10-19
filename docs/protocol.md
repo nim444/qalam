@@ -83,6 +83,9 @@ is encrypted.
 **Frame types:**
 - 1–5: pen, ping, pong, display, control. Encrypted, with the same payloads as v0.
 - 6–9: pairing messages (below). In the clear, with pairing, session and counter all 0.
+- 10–11: screen snapshot request and chunks (below). Encrypted.
+
+Either side drops a frame type it doesn't know (after it has decrypted), without an answer.
 
 ### Encrypted frames
 
@@ -102,6 +105,66 @@ key     = HKDF-SHA256(ikm = pairing key K, salt = session as 8 bytes LE,
   window after the frame has decrypted.
 - **Unknown or bad frames:** a frame with an unknown pairing, or one that fails to decrypt, is
   dropped without an answer.
+
+### Screen snapshot (types 10–11)
+
+One still picture of the area the pad maps to, sent only when the phone asks for it (the
+snapshot button on the strip). It is not a video stream.
+
+| type | name | direction | body |
+|---|---|---|---|
+| 10 | snapshot-request | phone → Mac | `request u16` · `max_w u16` · `max_h u16` · `missing_count u16` · `missing_count` × `index u16` |
+| 11 | snapshot-chunk | Mac → phone | `request u16` · `status u8` · `width u16` · `height u16` · `total_bytes u32` · `index u16` · `count u16` · `data` |
+
+**Request:**
+- `request` is an id the phone picks for each new picture (it counts up and wraps).
+- `max_w` × `max_h` is the pad's size in screen pixels. The Mac scales the area down to fit it,
+  keeping its shape, and never scales up: not past `max_w` × `max_h`, and not past the area's
+  real pixels. It also caps the picture at about 2 megapixels.
+- `missing_count` 0 asks for the whole picture. If `request` is the picture the Mac sent last,
+  it sends that again without a new capture (so a lost request or a lost burst can simply be
+  asked for again).
+- `missing_count` > 0 asks for only those chunks of picture `request` again. The phone sends at
+  most 500 indices per request.
+
+**Chunks:**
+- `status`: 0 ok, 1 no Screen Recording permission on the Mac, 2 the capture failed,
+  3 too soon (a new picture less than 0.5 s after the last one), 4 this Mac app can't send
+  pictures (`qalam-m0`), 5 the Mac no longer holds picture `request` (ask for a new one).
+- With status 0: `data` is bytes `index × 1200 …` of a JPEG that is `total_bytes` long and
+  `width` × `height` pixels, split into `count` chunks of 1200 bytes (the last one shorter).
+  Every chunk repeats `width`, `height`, `total_bytes` and `count`, so any chunk can start the
+  reassembly.
+- With any other status: one chunk with `width`, `height`, `total_bytes`, `index` and `count`
+  all 0 and no `data`. It is the final answer to that request.
+- A chunk is at most 1215 bytes of payload, so 1255 bytes sealed: one UDP datagram under a
+  1500-byte MTU (IPv4 or IPv6). USB carries the same frames with its `u16` length prefix.
+- The Mac keeps the frame under about 300 KB (quality about 0.65, lower or smaller when needed),
+  so a picture is at most about 250 chunks.
+
+**Pacing and the replay window:**
+- The Mac sends the chunks in order, a few per millisecond, so the phone's socket buffer
+  doesn't overflow. It seals each chunk at the moment it sends it, so the counters on the
+  session keep rising in sending order, pongs included, and an in-order burst never falls
+  behind the 64-frame replay window.
+
+**Reassembly on the phone:**
+- It collects chunks of its current `request` and ignores any other.
+- After a quiet gap (no chunk for 250 ms) with chunks missing, it asks for only those again,
+  at most 4 times, then gives up with a short message.
+- If nothing at all comes back within 1.2 s, it asks for the whole picture again (same
+  `request`), at most twice. An old Mac drops type 10 without an answer, so the phone then
+  says to update Qalam on the Mac.
+
+**Rules on the Mac:**
+- One phone (pairing) has one picture at a time: a new request stops the burst still going out
+  for the previous one, and the last picture is kept for resends until the next one.
+- A new picture less than 0.5 s after the last capture gets status 3; asking again for the
+  picture just sent (whole or chunks) isn't limited.
+- The capture leaves out Qalam's own windows (the ink overlay), because the phone draws its own
+  copy of the ink on top, and the mouse pointer.
+- A test instance (`QALAM_PORT` set) with `QALAM_TEST_SNAPSHOT=<image file>` answers with that
+  image, scaled the same way, instead of capturing the screen.
 
 ### Pairing: compare a 6-digit code
 

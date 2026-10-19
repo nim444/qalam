@@ -102,6 +102,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
                 _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
             })
         }
+        if ScreenGrab.allowed {
+            menu.addItem(label("Screen Recording: allowed"))
+        } else {
+            menu.addItem(action("Allow Screen Recording (for the phone's snapshot)…") {
+                // macOS shows its prompt only the first time; after that, go to the setting.
+                if !ScreenGrab.request() {
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                }
+            })
+        }
         let usb = !app.adbAvailable ? "USB fallback: adb not found"
             : app.usbReady.isEmpty ? "USB fallback: plug in the phone (USB debugging on)"
             : "USB fallback: ready"
