@@ -8,9 +8,9 @@ There are two apps:
 - a Kotlin Android app (`android/`)
 - a Swift menu-bar app (`mac/`)
 
-They talk over Wi-Fi (UDP + Bonjour) with a USB fallback (`adb reverse`). They pair once by
-comparing a 6-digit code, and every frame is encrypted after that. The user-facing overview
-is in `README.md`.
+They talk over USB (`adb reverse`) while the cable is in, and over Wi-Fi (UDP + Bonjour)
+otherwise. They pair once by comparing a 6-digit code, and every frame is encrypted after
+that. The user-facing overview is in `README.md`.
 
 ## When someone asks you to set Qalam up
 
@@ -23,7 +23,7 @@ ask before anything that installs software or replaces an app.
    - Help with the fixes, but ask first. Installing Android Studio or running `brew install`
      is their call.
    - The doctor writes `android/local.properties` itself when it finds the SDK.
-2. **Turn on USB debugging on the phone** (needed to install the app and for the USB fallback):
+2. **Turn on USB debugging on the phone** (needed to install the app and for the USB link):
    - Settings → About phone → Software information → tap **Build number** 7 times.
    - Settings → Developer options → turn on **USB debugging**.
    - Plug the phone in and tap **Allow** on the phone.
@@ -72,7 +72,7 @@ ask before anything that installs software or replaces an app.
 | The pad says "Allow Screen Recording for Qalam on the Mac" | Screen Recording (step 4); after a rebuild, remove Qalam from the list, add it again and reopen Qalam |
 | The pad says "No answer from the Mac. Update Qalam on the Mac?" | The Mac app is older than the phone app (it ignores snapshot requests), or `qalam-m0` is running: build and install both apps from the same checkout |
 | The S Pen button opens Samsung's Air command | Turn Air command off: Settings → Advanced features → S Pen |
-| The USB fallback isn't used | USB debugging on and allowed; the Mac's menu should say "USB fallback: ready"; `adb reverse --list` should show `tcp:47474` |
+| The pad shows Wi-Fi with the cable plugged in | USB debugging on and allowed; the Mac's menu should say "USB fallback: ready"; `adb reverse --list` should show `tcp:47474` |
 | "Qalam can't listen on port 47474" | Another Qalam or `qalam-m0` is running; quit it first |
 | The phone app closes | `adb logcat -d -b crash \| grep -A 25 ro.soluzy.qalam` shows why |
 

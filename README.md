@@ -54,8 +54,10 @@ Wacom-style tablet for macOS:
 - **A picture of the Mac screen on the pad, when you ask**: tap the screen button on the strip
   and the pad shows a still picture of the area it maps to, so you can aim. Tap again to
   refresh, hold to remove it. It's one picture per tap, not a video stream.
-- **Wi-Fi first, USB as the fallback**: the phone finds the Mac by itself (Bonjour). If Wi-Fi
-  drops, it switches to the USB cable (`adb reverse`) within a second, and back again later.
+- **USB when plugged in, Wi-Fi otherwise**: with the cable in, the phone talks over USB
+  (`adb reverse`), so a weak Wi-Fi can't slow the pen down. Unplug it and the phone moves to
+  Wi-Fi within a second (it finds the Mac by itself, over Bonjour), and back to USB a few
+  seconds after you plug it in again.
 - **Paired and encrypted**: pair once by comparing a 6-digit code on both screens (no camera,
   no account). After that every frame is sealed with AES-256-GCM, and the Mac ignores anything
   that isn't your phone.
@@ -105,7 +107,7 @@ flowchart LR
     Ink["Ink overlay<br/>one panel per screen"]
   end
   Pad -- "Wi-Fi: UDP, found via Bonjour" --> Rx
-  Pad -. "USB fallback: adb reverse" .-> Rx
+  Pad -. "USB when plugged in: adb reverse" .-> Rx
   Strip --> Rx
   Rx --> Cur
   Rx --> Ink
@@ -123,7 +125,7 @@ ___
 - **Phone:** a Galaxy phone or tablet with an S Pen on Android 14 or later (built and tested on
   a Galaxy S26 Ultra). Its S Pen has no Bluetooth, and Qalam doesn't need it. Building needs the
   Android SDK and a JDK 17+ (Android Studio's bundled one works).
-- **USB fallback:** USB debugging on the phone, and `adb` on the Mac.
+- **USB:** USB debugging on the phone, and `adb` on the Mac.
 
 </details>
 
@@ -215,7 +217,7 @@ the Mac").
 
 The menu-bar menu has the same controls, plus **Fade ink away** (after 3, 5 or 10 s), **Follow
 the mouse**, **Smooth the pen**, **Open at login**, and the state of Accessibility, Screen
-Recording and the USB fallback.
+Recording and the USB link.
 
 > **Samsung's Air command** opens when you press the S Pen button while hovering. If it gets in
 > the way of right-click or the eraser, turn it off in Settings → Advanced features → S Pen.
@@ -359,7 +361,7 @@ recording.
 Qalam does what it set out to do. One thing is possible if people ask for it:
 
 - **USB without developer mode.** Android Open Accessory instead of `adb reverse`, so the cable
-  fallback works without USB debugging. [Open an issue](https://github.com/nim444/qalam/issues)
+  works without USB debugging. [Open an issue](https://github.com/nim444/qalam/issues)
   if you'd use it.
 
 ____

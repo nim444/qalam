@@ -19,10 +19,11 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.concurrent.thread
 
 /**
- * The connection to the paired Mac. **Wi-Fi first:** UDP to the Mac found over Bonjour (matched
- * by its id), a typed address, or where it answered last time. **USB as the fallback:** TCP to
- * 127.0.0.1, which `adb reverse` (set up by the Mac app) carries over the cable. Both are pinged
- * every 250 ms; pen frames go to Wi-Fi while it answers, to USB when it doesn't.
+ * The connection to the paired Mac. **Wi-Fi:** UDP to the Mac found over Bonjour (matched by its
+ * id), a typed address, or where it answered last time. **USB:** TCP to 127.0.0.1, which
+ * `adb reverse` (set up by the Mac app) carries over the cable. Both are pinged every 250 ms;
+ * pen frames go to USB while the cable answers (a weak Wi-Fi still answers, just late and lossy),
+ * to Wi-Fi when it doesn't.
  *
  * Every frame is sealed (docs/protocol.md, v1): each link gets its own random session, so its
  * own keys and counters. Without a pairing, the Link only looks for Macs to pair with.
@@ -158,8 +159,8 @@ class Link(private val context: Context, private val pairing: Pairing?, private 
     private fun alive(pongAt: Long, now: Long) = pongAt != 0L && now - pongAt < ALIVE_NS
 
     private fun active(now: Long = System.nanoTime()): Kind? = when {
-        alive(wifiPongAt, now) -> Kind.WIFI
         tcp != null && alive(usbPongAt, now) -> Kind.USB
+        alive(wifiPongAt, now) -> Kind.WIFI
         wifiTarget != null -> Kind.WIFI // nothing answering yet: keep trying Wi-Fi
         else -> null
     }

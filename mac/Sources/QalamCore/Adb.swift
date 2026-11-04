@@ -1,8 +1,8 @@
 import Foundation
 
 /// Keeps `adb reverse tcp:47474 tcp:47474` in place on every attached Android device, so the
-/// phone reaches this Mac at its own 127.0.0.1 through the USB cable. That is the fallback the
-/// phone uses when Wi-Fi stops answering. Checked every 3 s, so plugging the cable in later works.
+/// phone reaches this Mac at its own 127.0.0.1 through the USB cable. The phone prefers that link
+/// while the cable answers, and uses Wi-Fi otherwise. Checked every 3 s, so plugging the cable in later works.
 public final class AdbReverse {
     /// Serials with the USB fallback in place; called on the main queue when it changes.
     public var onChange: (([String]) -> Void)?

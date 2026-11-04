@@ -6,8 +6,8 @@
 
 | Transport | Phone → Mac | Found by | Framing |
 |---|---|---|---|
-| **Wi-Fi** (preferred) | UDP to the Mac's LAN address | Bonjour `_qalam._udp`, or an IP typed on the phone | one frame per datagram |
-| **USB** (fallback) | TCP to the phone's own `127.0.0.1` | `adb reverse tcp:47474 tcp:47474`, kept in place by the Mac receiver | `u16` little-endian length, then the frame |
+| **Wi-Fi** (without a cable) | UDP to the Mac's LAN address | Bonjour `_qalam._udp`, or an IP typed on the phone | one frame per datagram |
+| **USB** (preferred while plugged in) | TCP to the phone's own `127.0.0.1` | `adb reverse tcp:47474 tcp:47474`, kept in place by the Mac receiver | `u16` little-endian length, then the frame |
 
 The phone pings both links every 250 ms. Pen frames go to Wi-Fi while it has answered within
 the last second. Otherwise they go to USB, and back to Wi-Fi once it answers again. If neither

@@ -5,7 +5,7 @@ import QalamCore
 import SystemConfiguration
 
 // qalam-m0: command-line receiver for testing the links. The phone pad sends pen frames over
-// Wi-Fi (UDP, found via Bonjour) or, as a fallback, over USB (TCP through adb reverse); this moves
+// USB (TCP through adb reverse) while plugged in, or Wi-Fi (UDP, found via Bonjour); this moves
 // the Mac cursor (cursor mode only, no ink) and prints link numbers every 2 s.
 
 struct Options {

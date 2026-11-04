@@ -140,13 +140,18 @@ How:
   (like Accessibility).
 - Bytes: [protocol.md](protocol.md), types 10–11.
 
-## Transport: Wi-Fi first, USB as the fallback
+## Transport: USB when plugged in, Wi-Fi otherwise
 
-Decided on 1 Oct 2026. The phone pings both links every 250 ms and sends pen data on **Wi-Fi**
-while it answers. When Wi-Fi goes quiet for a second, pen data switches to **USB**, and it
-switches back as soon as Wi-Fi answers again. USB runs through `adb reverse`, which the Mac
-keeps in place for any attached phone, so plugging the cable in is all it takes. It needs
+The phone pings both links every 250 ms and sends pen data on **USB** while the cable answers,
+on **Wi-Fi** otherwise. When the cable goes quiet for a second, pen data switches to Wi-Fi;
+after the cable is plugged in again it is back on USB within about 4 s (the Mac checks for
+phones every 3 s, the phone retries every second). USB runs through `adb reverse`, which the
+Mac keeps in place for any attached phone, so plugging the cable in is all it takes. It needs
 USB debugging on the phone.
+
+Decided on 1 Oct 2026 as Wi-Fi first with USB as the fallback; changed to USB first on
+4 Nov 2026, because a weak Wi-Fi still answers the pings, late and lossy, so the pen never
+moved to the cable that was plugged in.
 
 ## Wire protocol
 
