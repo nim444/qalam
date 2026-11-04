@@ -112,9 +112,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
                 }
             })
         }
-        let usb = !app.adbAvailable ? "USB fallback: adb not found"
-            : app.usbReady.isEmpty ? "USB fallback: plug in the phone (USB debugging on)"
-            : "USB fallback: ready"
+        let usb = !app.adbAvailable ? "USB: adb not found"
+            : app.usbReady.isEmpty ? "USB: plug in the phone (USB debugging on)"
+            : "USB: ready"
         menu.addItem(label(usb))
         let login = SMAppService.mainApp
         menu.addItem(action("Open at login", checked: login.status == .enabled) {

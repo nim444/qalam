@@ -28,7 +28,7 @@ func usage() -> Never {
       --raw            no smoothing (default: one-euro filter on)
       --slop POINTS    how far a tap may wobble before it becomes a drag (default 3)
       --dry-run        receive and print numbers, but don't touch the cursor
-      --no-adb         don't set up the USB fallback (adb reverse)
+      --no-adb         don't set up the USB link (adb reverse)
     """)
     exit(0)
 }

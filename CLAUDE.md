@@ -72,7 +72,7 @@ ask before anything that installs software or replaces an app.
 | The pad says "Allow Screen Recording for Qalam on the Mac" | Screen Recording (step 4); after a rebuild, remove Qalam from the list, add it again and reopen Qalam |
 | The pad says "No answer from the Mac. Update Qalam on the Mac?" | The Mac app is older than the phone app (it ignores snapshot requests), or `qalam-m0` is running: build and install both apps from the same checkout |
 | The S Pen button opens Samsung's Air command | Turn Air command off: Settings → Advanced features → S Pen |
-| The pad shows Wi-Fi with the cable plugged in | USB debugging on and allowed; the Mac's menu should say "USB fallback: ready"; `adb reverse --list` should show `tcp:47474` |
+| The pad shows Wi-Fi with the cable plugged in | USB debugging on and allowed; the Mac's menu should say "USB: ready"; `adb reverse --list` should show `tcp:47474` |
 | "Qalam can't listen on port 47474" | Another Qalam or `qalam-m0` is running; quit it first |
 | The phone app closes | `adb logcat -d -b crash \| grep -A 25 ro.soluzy.qalam` shows why |
 

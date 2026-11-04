@@ -4,7 +4,7 @@ import Foundation
 /// phone reaches this Mac at its own 127.0.0.1 through the USB cable. The phone prefers that link
 /// while the cable answers, and uses Wi-Fi otherwise. Checked every 3 s, so plugging the cable in later works.
 public final class AdbReverse {
-    /// Serials with the USB fallback in place; called on the main queue when it changes.
+    /// Serials with the USB link in place; called on the main queue when it changes.
     public var onChange: (([String]) -> Void)?
     /// Print progress lines (the command-line tool) or stay quiet (the app).
     public var verbose = true
@@ -27,7 +27,7 @@ public final class AdbReverse {
 
     public func start() {
         guard adb != nil else {
-            if verbose { print("USB fallback off: adb not found") }
+            if verbose { print("USB off: adb not found") }
             return
         }
         let t = DispatchSource.makeTimerSource(queue: queue)
@@ -52,13 +52,13 @@ public final class AdbReverse {
             }
             if run(["-s", serial, "reverse", "--list"]).contains(rule) {
                 armed.insert(serial)
-                if verbose { print("USB fallback ready on \(serial) (adb reverse \(rule))") }
+                if verbose { print("USB ready on \(serial) (adb reverse \(rule))") }
                 changed = true
             }
         }
         for serial in armed.subtracting(serials) {
             armed.remove(serial)
-            if verbose { print("USB fallback: \(serial) disconnected") }
+            if verbose { print("USB: \(serial) disconnected") }
             changed = true
         }
         if changed {
